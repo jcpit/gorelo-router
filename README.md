@@ -139,6 +139,9 @@ an ordinary `docker compose up`.
 
    - Confirm the top-level `account_id` is the intended non-placeholder account.
    - Replace `router.example.com` with the dedicated production admin hostname.
+   - Replace `*@example.com` in the top-level `addresses` list with the exact
+     apex or ingestion subdomain that should be caught and sent to this Worker,
+     for example `*@alerts.example.com`.
    - Replace the scaffold Gorelo address in `DEFAULT_GORELO_ADDRESS` and
      `ALLOWED_FORWARD_DESTINATIONS`.
    - Select the correct `GORELO_API_BASE_URL` region.
@@ -154,6 +157,12 @@ an ordinary `docker compose up`.
    the entire production hostname and a least-privilege allow policy for its
    operators. This protects `/admin`, `/api/v1`, and `/healthz` as soon as the
    Custom Domain appears. Do not protect only `/admin`.
+
+   Onboard the receiving apex domain or dedicated ingestion subdomain in
+   **Compute → Email Service → Email Routing**, and wait until Cloudflare shows
+   all required routing DNS records as active. The address in the top-level
+   `addresses` list must use that exact hostname. Do not replace an existing
+   mail provider's MX records unless that cutover is intentional.
 
    In **Compute → Email Service → Email Routing → Destination Addresses**, also
    add and verify every Gorelo or review address the Worker may forward to.
@@ -179,11 +188,13 @@ an ordinary `docker compose up`.
    The server-side binding restrictions are separate from `ALLOWED_FORWARD_DESTINATIONS`; every selectable release destination must appear in both that application allow-list and `send_email.allowed_destination_addresses`. The sender must belong to a domain onboarded to Email Service. See [Email Sending from Workers](https://developers.cloudflare.com/email-service/api/send-emails/workers-api/) and [send binding restrictions](https://developers.cloudflare.com/email-service/configuration/send-bindings/).
 
 7. The first deployment automatically generates `ADMIN_API_TOKEN` with
-   `openssl rand -base64 48`. It uploads the Worker code and secret together,
-   then displays the 384-bit token once after a successful deployment. Be ready
-   to save that one-time value in a password manager. The token is never written
-   to the host checkout, an environment variable, `vars`, or D1, and Cloudflare
-   cannot reveal it later.
+   `openssl rand -base64 48`. It deploys the Worker code and secret together
+   without reconciling the declared HTTP, schedule, or email triggers, then
+   displays the active 384-bit token once before trigger reconciliation. On an
+   upgrade, existing triggers remain in place during this first phase. Be ready
+   to save that one-time value in a password manager before answering a later
+   routing-takeover prompt. The token is never written to the host checkout, an
+   environment variable, `vars`, or D1, and Cloudflare cannot reveal it later.
 
 8. Re-run `whoami`, then launch the one-shot deployment container:
 
@@ -195,18 +206,28 @@ an ordinary `docker compose up`.
    The container checks the deployable source, configuration, formatting, types,
    tests, and Worker build, then inspects only the names of the target Worker's
    secrets. It initializes the empty D1 database from the single
-   `0001_initial.sql` baseline and deploys the Worker. A new or missing admin
-   token is generated inside the interactive deployment container; later
+   `0001_initial.sql` baseline, uploads and activates a Worker version, then
+   reconciles its HTTP, schedule, and Email Routing triggers. A new or missing
+   admin token is generated inside the interactive deployment container; later
    deployments preserve the existing Cloudflare secret without displaying or
    rotating it. First-time generation asks for explicit confirmation before
-   creating the value.
+   creating the value. The declared `*@domain` address becomes an enabled Email
+   Routing catch-all whose action is `worker:gorelo-router`. If an existing
+   catch-all is managed outside Wrangler, trigger reconciliation shows the exact
+   takeover conflict and asks separately before replacing it. Review that target
+   and action, plus any old Worker-owned address deletion in the plan, before
+   accepting.
    There is no historical upgrade chain because this is the first release. The
    preflight rejects a placeholder account/database, other scaffold values, or
    an unsafe public hostname posture before changing D1 or deploying. A newly
    generated token is written only to a mode-`0600` temporary file on the
-   ephemeral container's memory-backed `/tmp`, passed through Wrangler's atomic
-   `--secrets-file` deployment, and removed on exit. This avoids the temporary
-   public dummy Worker that a first-run `secret put` can otherwise create.
+   ephemeral container's memory-backed `/tmp`, passed through the core
+   deployment configuration, and removed immediately after confirmed
+   activation. This avoids the temporary public dummy Worker that a first-run
+   `secret put` can otherwise create. If core activation cannot be confirmed,
+   the script shows the possibly active value and directs a deliberate rotation
+   on the next run. If trigger reconciliation fails after confirmed activation,
+   keep the active token and rerun the ordinary deployment without rotation.
 
    If the one-time value is lost or rotation is required, generate and deploy a
    replacement intentionally:
@@ -230,7 +251,23 @@ an ordinary `docker compose up`.
    actions remain disabled without the Gorelo key; webhooks remain disabled
    until both the signing secret and exact host allowlist are configured.
 
-9. Onboard the chosen apex domain or dedicated ingestion subdomain in **Compute → Email Service → Email Routing** and wait until its required routing DNS records are active. Enable that hostname's **Catch-all** rule with **Send to a Worker → gorelo-router**. Do not create per-recipient Cloudflare rules for addresses that Gorelo Router should evaluate: an explicit Email Routing rule takes precedence over the catch-all and bypasses the application's rules and audit. Cloudflare's [routing setup guide](https://developers.cloudflare.com/email-service/get-started/route-emails/) and the [full setup guide](docs/setup-guide.md#10-connect-email-routing-to-the-worker) cover the domain and subdomain flows.
+9. Confirm the deployment-created rule. Replace `example.com` with the apex
+   Cloudflare DNS zone; keep using the apex here even when `addresses` contains
+   an ingestion subdomain such as `*@alerts.example.com`:
+
+   ```bash
+   docker compose run --rm cloudflare email routing rules list example.com
+   ```
+
+   It must report an enabled catch-all with `worker:gorelo-router`. Do not
+   create per-recipient Cloudflare rules for addresses that Gorelo Router should
+   evaluate: an explicit Email Routing rule takes precedence over the catch-all
+   and bypasses the application's rules and audit. Remove or deliberately
+   repoint any existing exceptions. Cloudflare's
+   [routing rule guide](https://developers.cloudflare.com/email-service/configuration/email-routing-addresses/)
+   and the
+   [full setup guide](docs/setup-guide.md#10-deploy-and-bind-the-catch-all)
+   cover the domain, takeover, and verification flow.
 
 10. Visit the protected production `/admin`, enter `ADMIN_API_TOKEN`, and
     refresh **Setup**. Readiness validates the D1 schema and every integration

@@ -6,6 +6,22 @@ const { rawConfig: config } = experimental_readRawConfig({
   config: configPath,
 });
 const blockers = [];
+const reservedDeploymentSuffixes = [
+  "example.com",
+  "example.net",
+  "example.org",
+  "example",
+  "invalid",
+  "localhost",
+  "test",
+];
+
+function isReservedDeploymentHostname(value) {
+  const hostname = value.toLowerCase().replace(/\.$/, "");
+  return reservedDeploymentSuffixes.some(
+    (suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`),
+  );
+}
 
 if (
   typeof config.account_id !== "string" ||
@@ -65,9 +81,22 @@ if (
   typeof customDomainRoute !== "object" ||
   customDomainRoute.custom_domain !== true ||
   typeof customDomainRoute.pattern !== "string" ||
-  customDomainRoute.pattern === "router.example.com"
+  isReservedDeploymentHostname(customDomainRoute.pattern)
 ) {
   blockers.push("configure exactly one non-placeholder Custom Domain route");
+}
+const addresses = Array.isArray(config.addresses) ? config.addresses : [];
+const catchAllAddress = addresses.length === 1 ? addresses[0] : undefined;
+if (
+  typeof catchAllAddress !== "string" ||
+  !/^\*@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(
+    catchAllAddress,
+  ) ||
+  isReservedDeploymentHostname(catchAllAddress.slice(2))
+) {
+  blockers.push(
+    "configure exactly one non-placeholder *@domain inbound catch-all",
+  );
 }
 if (blockers.length > 0) {
   console.error(

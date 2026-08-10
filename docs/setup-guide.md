@@ -294,9 +294,20 @@ R2 content before its D1 pointer. Cloudflare lifecycle deletion may lag.
 
 ## 6. Configure the Worker
 
-Edit only non-secret deployment settings in the `vars` object of
-`wrangler.production.jsonc`. Never put `ADMIN_API_TOKEN`, `GORELO_API_KEY`, or
-`WEBHOOK_SIGNING_SECRET` there.
+Edit only non-secret deployment settings in `wrangler.production.jsonc`. Never
+put `ADMIN_API_TOKEN`, `GORELO_API_KEY`, or `WEBHOOK_SIGNING_SECRET` there.
+
+Replace the top-level catch-all scaffold with the exact receiving hostname that
+will be onboarded to Cloudflare Email Routing:
+
+```jsonc
+"addresses": ["*@alerts.example.com"],
+```
+
+Use an unused apex domain only when Cloudflare should own its mail delivery. If
+another provider owns the apex MX records, use a dedicated ingestion subdomain.
+The production preflight requires exactly one non-placeholder `*@domain` entry;
+recipient-specific decisions belong in Gorelo Router rules.
 
 At minimum, replace the placeholder forwarding address and choose the intended
 quarantine posture:
@@ -388,11 +399,14 @@ parsing. With the scaffold's 10 MiB parsing limit, the example threshold is
 ## 7. Configure secrets and the admin token
 
 The first deployment automatically generates `ADMIN_API_TOKEN` with
-`openssl rand -base64 48`, atomically uploads it with the real Worker code, and
-displays the resulting 384-bit value once after deployment succeeds. Run the
-first deployment from an interactive terminal and be ready to save that value
-in a password manager. The container asks for explicit confirmation before
-generating it. Cloudflare stores the secret but cannot reveal it later.
+`openssl rand -base64 48` and deploys it with the real Worker code without
+reconciling the declared HTTP, schedule, or email triggers. It displays the
+active 384-bit value once before trigger reconciliation. Existing triggers stay
+in place during this first phase on an upgrade. Run the first deployment from
+an interactive terminal and save the value in a password manager before
+answering any later routing prompt. The container asks for explicit
+confirmation before generating it. Cloudflare stores the secret but cannot
+reveal it later.
 
 The token is never placed on a command line, in an environment variable, host
 file, Git, `vars`, or D1. It exists briefly in a mode-`0600` file on the deploy
@@ -420,7 +434,7 @@ after a reload or new session.
 
 Ordinary deployments inspect secret names and preserve an existing admin token;
 they never display or rotate it. If the one-time value is lost or rotation is
-required, generate and atomically deploy a replacement intentionally:
+required, generate and deploy a replacement intentionally:
 
 ```bash
 docker compose run --rm --build deploy --rotate-admin-token
@@ -451,34 +465,10 @@ not the other will fail.
 See Cloudflare's
 [destination-address documentation](https://developers.cloudflare.com/email-service/configuration/email-routing-addresses/).
 
-## 9. Apply the schema and deploy
+## 9. Onboard the receiving domain
 
-Confirm the exact Cloudflare account again, then run the one-shot production
-deployment container:
-
-```bash
-docker compose run --rm cloudflare whoami
-docker compose run --rm --build deploy
-```
-
-The container scans the deployable source tree; refuses an all-zero Cloudflare
-account or D1 ID, scaffold Gorelo address and hostname, or unsafe public-hostname
-settings; runs formatting, type, test, and Worker build checks; then inspects
-only the names of the target Worker's configured secrets. Inspection failures
-stop before D1 changes. A new Worker or confirmed missing admin secret causes
-the container to generate `openssl rand -base64 48`; an existing secret is
-preserved. Only after those checks pass does it initialize the empty D1 database
-from the single `0001_initial.sql` baseline and deploy the matching Worker. A
-new token is included atomically using a mode-`0600` temporary file on the
-ephemeral container's memory-backed `/tmp`, deleted on exit, and displayed once
-after success. This avoids the temporary public dummy Worker that first-run
-`secret put` can otherwise create. There is no historical upgrade chain in this
-first release. Optional integration readiness is checked after authentication
-in Setup.
-
-## 10. Connect Email Routing to the Worker
-
-Activate Email Routing and confirm its DNS state before enabling the catch-all:
+Activate Email Routing and confirm its DNS state before deploying the declared
+catch-all:
 
 1. Open **Compute → Email Service → Email Routing**.
 2. For an unused apex domain, select **Onboard Domain**, review the MX, SPF, and
@@ -490,36 +480,88 @@ Activate Email Routing and confirm its DNS state before enabling the catch-all:
 4. Wait for DNS propagation and confirm Email Routing shows the selected
    hostname and its required records as active. Do not continue while MX or
    verification status is incomplete.
-5. Select that hostname, open **Routing Rules**, edit **Catch-all**, set
-   **Action** to **Send to a Worker**, choose `gorelo-router`, enable it, and
-   save. This is the only Cloudflare recipient rule Gorelo Router requires.
-6. Review every explicit rule on the same hostname. Explicit matches take
+5. Confirm the top-level `addresses` value in `wrangler.production.jsonc` is
+   the same hostname, expressed as `*@domain`.
+6. Review every explicit rule on that hostname. Explicit matches take
    precedence over the catch-all. Remove or repoint any address that should be
    evaluated and audited by Gorelo Router; retain a bypass only deliberately.
+   Rules that point to a different Worker are not silently removed by Gorelo
+   Router's deployment.
 
-With Wrangler 4.120 or later, the equivalent explicit change is:
+## 10. Deploy and bind the catch-all
+
+Confirm the exact Cloudflare account again, then run the one-shot production
+deployment container:
 
 ```bash
-docker compose run --rm cloudflare email routing rules update \
-  example.com catch-all \
-  --enabled true \
-  --action-type worker \
-  --action-value gorelo-router
+docker compose run --rm cloudflare whoami
+docker compose run --rm --build deploy
 ```
 
-Replace `example.com` with the exact onboarded apex or ingestion subdomain, then
-confirm the result with:
+The container scans the deployable source tree; refuses an all-zero Cloudflare
+account or D1 ID, scaffold Gorelo address, HTTP hostname, or inbound catch-all;
+runs formatting, type, test, and Worker build checks; then inspects only the
+names of the target Worker's configured secrets. Inspection failures stop
+before D1 changes. A new Worker or confirmed missing admin secret causes the
+container to generate `openssl rand -base64 48`; an existing secret is
+preserved. Only after those checks pass does it initialize the empty D1 database
+from the single `0001_initial.sql` baseline. It derives an ephemeral core config
+that leaves HTTP, schedule, and email trigger reconciliation for the second
+phase; deploys the matching code and any new token as one active Worker version;
+verifies Wrangler recorded a real version ID; then reconciles every trigger
+from the full production config. Existing triggers remain attached while an
+upgrade's core version is activated. The mode-`0600` token file lives only on
+the ephemeral container's memory-backed `/tmp` and is deleted immediately after
+confirmed core activation. This avoids the temporary public dummy Worker that
+first-run `secret put` can otherwise create. There is no historical upgrade
+chain in this first release. Optional integration readiness is checked after
+authentication in Setup.
+
+The generated token is displayed after confirmed core activation but before
+trigger reconciliation. Save it immediately. If activation cannot be confirmed,
+the script displays the possibly active value for incident handling and directs
+you to rerun with `--rotate-admin-token` to establish a new known value. If
+trigger reconciliation fails, keep the active token and rerun the ordinary
+deployment without rotation.
+
+Wrangler also reconciles the top-level `addresses` declaration during this
+deployment. The `*@domain` entry becomes an enabled catch-all with an `all`
+matcher and `worker:gorelo-router` action. If the domain already has a catch-all
+managed through the dashboard or API, Wrangler displays a takeover conflict and
+asks whether to apply it. Check the exact domain and old/new actions before
+answering yes. Also review any deletion of an old address previously owned by
+this Worker; `addresses` is declarative source-of-truth configuration. Declining
+leaves the existing routing action in place even though the new Worker version
+is already active; correct the configuration and rerun.
+
+Confirm the result against the apex Cloudflare DNS zone. Wrangler's list command
+resolves a zone by its exact name, so use `example.com` here even when the
+configured inbound address is `*@alerts.example.com`:
 
 ```bash
 docker compose run --rm cloudflare email routing rules list example.com
 ```
 
+The final line must report an enabled catch-all whose action is
+`worker:gorelo-router`. Then send a non-sensitive message to a previously
+undefined recipient and confirm it appears in Audit.
+
+Do not use `wrangler email routing rules update ... catch-all --action-type
+worker` with Wrangler 4.120.0. That open-beta subcommand incorrectly rejects a
+Worker action before it calls Cloudflare. The normal `deploy` path above uses
+Cloudflare's supported catch-all API and is the Docker-native configuration for
+this project. The dashboard's **Catch-all → Send to a Worker** control remains a
+manual recovery option, but a later deployment will reconcile it to the
+top-level `addresses` declaration.
+
 Cloudflare's current
-[routing setup guide](https://developers.cloudflare.com/email-service/get-started/route-emails/),
+[routing rule guide](https://developers.cloudflare.com/email-service/configuration/email-routing-addresses/),
+[catch-all API](https://developers.cloudflare.com/api/resources/email_routing/subresources/rules/subresources/catch_alls/),
+[Wrangler address-reconciliation release notes](https://github.com/cloudflare/workers-sdk/releases/tag/wrangler%404.113.0),
 [domain configuration](https://developers.cloudflare.com/email-service/configuration/domains/),
 and
 [subdomain setup](https://developers.cloudflare.com/email-service/configuration/subdomains/)
-show the dashboard flow and DNS requirements.
+document the Worker action, API shape, dashboard flow, and DNS requirements.
 
 Create recipient-specific policies inside Gorelo Router. A message that matches
 no application rule follows the configured default action and destination. A
@@ -914,13 +956,13 @@ Use `--no-update-config` on future resource creation commands.
 | Symptom                                                     | Checks and resolution                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Cloudflare account is not configured                        | Run `docker compose run --rm cloudflare whoami`, copy the intended Account ID into `account_id` in `wrangler.production.jsonc`, then retry.                                                                                                                                                                                                                                                                                                                                     |
-| Deploy preflight says configuration is incomplete           | Replace the all-zero Cloudflare `account_id`, D1 `database_id`, scaffold Gorelo address, and `router.example.com` hostname in `wrangler.production.jsonc`. Keep `workers_dev` and `preview_urls` false.                                                                                                                                                                                                                                                                         |
+| Deploy preflight says configuration is incomplete           | Replace the all-zero Cloudflare `account_id`, D1 `database_id`, scaffold Gorelo address, `router.example.com` HTTP hostname, and `*@example.com` inbound catch-all in `wrangler.production.jsonc`. Keep `workers_dev` and `preview_urls` false.                                                                                                                                                                                                                                 |
 | Deployment cannot inspect `ADMIN_API_TOKEN`                 | Confirm Wrangler authentication, account selection, Worker name, and Cloudflare availability. Inspection fails closed and never treats an unknown API error as a missing token.                                                                                                                                                                                                                                                                                                 |
 | First deployment requires an interactive terminal           | Do not use `-T`, redirect output, or run first-time generation unattended. Run the Compose deployment interactively, confirm generation, and save the displayed token immediately.                                                                                                                                                                                                                                                                                              |
 | `/admin` rejects the token                                  | Confirm the token belongs to this deployed Worker and was not copied with whitespace. Rotate it if its handling is uncertain.                                                                                                                                                                                                                                                                                                                                                   |
 | `/healthz` works but readiness fails                        | `/healthz` is only Router-unauthenticated liveness/configuration and should still sit behind Access. Open authenticated Setup or `/api/v1/readiness`, then fix the named schema, binding, release, client, or webhook check.                                                                                                                                                                                                                                                    |
 | D1 schema is missing                                        | Confirm the intended account and D1 ID, then rerun `docker compose run --rm --build deploy`; it initializes the baseline before deploying.                                                                                                                                                                                                                                                                                                                                      |
-| Mail never reaches the Worker                               | Confirm the domain/subdomain is eligible for Email Routing, its MX setup is active, and its enabled catch-all action selects `gorelo-router`. Explicit Cloudflare recipient rules take precedence and bypass the Router, so remove or repoint unintended exceptions. Verify with `docker compose run --rm cloudflare email routing rules list example.com` and an unfiltered Worker tail.                                                                                       |
+| Mail never reaches the Worker                               | Confirm `addresses` names the onboarded hostname, MX is active, and `rules list` reports an enabled `worker:gorelo-router` catch-all. Rerun the interactive deployment and approve the verified takeover; Wrangler 4.120's catch-all `rules update` is broken. Explicit recipient rules bypass the Router, so remove or repoint unintended exceptions. Check an unfiltered Worker tail.                                                                                         |
 | A forward destination is rejected                           | The address must be valid, application allow-listed, and verified as a Cloudflare Email Routing destination. Check both controls.                                                                                                                                                                                                                                                                                                                                               |
 | Message processing fails instead of using the default route | This is intentional fail-closed behavior. Inspect Audit and the configured `FAILURE_FORWARD_ADDRESS`/`QUARANTINE_ADDRESS`; failures never silently fall through to normal Gorelo delivery.                                                                                                                                                                                                                                                                                      |
 | Body or attachment rule fails for a large message           | Compare raw size with `MAX_PARSE_BYTES`. Add a higher-priority metadata-only size rule and consider representative Workers Paid limits for production content parsing.                                                                                                                                                                                                                                                                                                          |

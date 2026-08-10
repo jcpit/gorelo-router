@@ -12,6 +12,7 @@
       "custom_domain": true,
     },
   ],
+  "addresses": ["*@example.com"],
   "observability": {
     "enabled": true,
   },
