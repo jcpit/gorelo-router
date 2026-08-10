@@ -39,7 +39,10 @@ RUN npm run security:public \
 
 FROM source AS tooling
 
-RUN chown node:node /app \
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/* \
+    && chown node:node /app \
     && install -d -o node -g node /home/node/.config/.wrangler \
     && chmod 0755 \
       /app/scripts/cloudflare-cli.sh \

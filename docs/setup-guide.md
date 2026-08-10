@@ -89,6 +89,11 @@ Docker runs Wrangler's local Cloudflare runtime. It is useful for configuration,
 rules, dry runs, audit, and simulated email events, but it does not receive SMTP
 mail and is not a production replacement.
 
+Do not publish port `8787` through Cloudflare Tunnel as the production Router.
+That endpoint uses local emulated D1/R2 state and cannot receive Cloudflare Email
+Routing events. The production `/admin` is served by the deployed Worker's
+Custom Domain and uses its production bindings.
+
 ```bash
 git clone https://github.com/jcpit/gorelo-router.git
 cd gorelo-router
@@ -369,15 +374,19 @@ parsing. With the scaffold's 10 MiB parsing limit, the example threshold is
 
 ## 7. Configure secrets and the admin token
 
-Create a unique random admin token of at least 32 characters and store it in
-your password manager. Do not put it in a host file, command argument,
-environment variable, `vars`, or D1. The one-shot deployment container prompts
-for it with hidden input and atomically uploads it with the real Worker code.
+The first deployment automatically generates `ADMIN_API_TOKEN` with
+`openssl rand -base64 48`, atomically uploads it with the real Worker code, and
+displays the resulting 384-bit value once after deployment succeeds. Run the
+first deployment from an interactive terminal and be ready to save that value
+in a password manager. The container asks for explicit confirmation before
+generating it. Cloudflare stores the secret but cannot reveal it later.
 
-Do not place the token on the command line, in Git, or in `vars`. Every
-`/api/v1` endpoint requires this bearer token. `/healthz` is
-Router-unauthenticated and reports liveness/configuration only; keep it behind
-the production Cloudflare Access policy.
+The token is never placed on a command line, in an environment variable, host
+file, Git, `vars`, or D1. It exists briefly in a mode-`0600` file on the deploy
+container's memory-backed `/tmp`, which is removed on exit. Every `/api/v1`
+endpoint requires this bearer token. `/healthz` is Router-unauthenticated and
+reports liveness/configuration only; keep it behind the production Cloudflare
+Access policy.
 
 After the first deployment succeeds, optional features use separate interactive
 secret commands:
@@ -396,12 +405,19 @@ identity. Cloudflare Access should provide the user boundary. The dashboard
 keeps the token only in page memory, so an operator may need to enter it again
 after a reload or new session.
 
-To rotate the admin token, update the password-manager value and enter it at the
-next `deploy` prompt. Rotate an optional secret by repeating its Compose `secret
-put` command. Verify the new credential and remove the old value from your
-password manager and operational systems. If any credential is ever committed
-or publicly exposed, revoke or rotate it immediately; deleting it from Git does
-not make it safe again.
+Ordinary deployments inspect secret names and preserve an existing admin token;
+they never display or rotate it. If the one-time value is lost or rotation is
+required, generate and atomically deploy a replacement intentionally:
+
+```bash
+docker compose run --rm --build deploy --rotate-admin-token
+```
+
+Save the new one-time value, verify it, and remove the old value from your
+password manager and operational systems. Rotate an optional secret by repeating
+its Compose `secret put` command. If any credential is ever committed or
+publicly exposed, revoke or rotate it immediately; deleting it from Git does not
+make it safe again.
 
 ## 8. Verify Cloudflare forwarding destinations
 
@@ -433,16 +449,19 @@ docker compose run --rm --build deploy
 ```
 
 The container scans the deployable source tree; refuses an all-zero Cloudflare
-account or D1 ID, scaffold Gorelo address and hostname, or unsafe
-public-hostname settings; runs formatting, type, test, and Worker build checks;
-then requests the stored admin token with hidden input. Only after those checks
-pass does it initialize the empty D1 database from the single
-`0001_initial.sql` baseline and deploy the matching Worker and required secret
-together using a mode-`0600` temporary file on the ephemeral container's
-memory-backed `/tmp`. The file is deleted on exit. This avoids the temporary
-public dummy Worker that first-run `secret put` can otherwise create. There is
-no historical upgrade chain in this first release. Optional integration
-readiness is checked after authentication in Setup.
+account or D1 ID, scaffold Gorelo address and hostname, or unsafe public-hostname
+settings; runs formatting, type, test, and Worker build checks; then inspects
+only the names of the target Worker's configured secrets. Inspection failures
+stop before D1 changes. A new Worker or confirmed missing admin secret causes
+the container to generate `openssl rand -base64 48`; an existing secret is
+preserved. Only after those checks pass does it initialize the empty D1 database
+from the single `0001_initial.sql` baseline and deploy the matching Worker. A
+new token is included atomically using a mode-`0600` temporary file on the
+ephemeral container's memory-backed `/tmp`, deleted on exit, and displayed once
+after success. This avoids the temporary public dummy Worker that first-run
+`secret put` can otherwise create. There is no historical upgrade chain in this
+first release. Optional integration readiness is checked after authentication
+in Setup.
 
 ## 10. Connect Email Routing to the Worker
 
@@ -860,7 +879,8 @@ Use `--no-update-config` on future resource creation commands.
 | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Cloudflare account is not configured                        | Run `docker compose run --rm cloudflare whoami`, copy the intended Account ID into `account_id` in `wrangler.production.jsonc`, then retry.                                                                                  |
 | Deploy preflight says configuration is incomplete           | Replace the all-zero Cloudflare `account_id`, D1 `database_id`, scaffold Gorelo address, and `router.example.com` hostname in `wrangler.production.jsonc`. Keep `workers_dev` and `preview_urls` false.                      |
-| Deployment rejects `ADMIN_API_TOKEN`                        | Enter the password-manager value at the hidden `deploy` prompt. It must be at least 32 characters, must not be the tracked placeholder, and must not have surrounding whitespace.                                            |
+| Deployment cannot inspect `ADMIN_API_TOKEN`                 | Confirm Wrangler authentication, account selection, Worker name, and Cloudflare availability. Inspection fails closed and never treats an unknown API error as a missing token.                                              |
+| First deployment requires an interactive terminal           | Do not use `-T`, redirect output, or run first-time generation unattended. Run the Compose deployment interactively, confirm generation, and save the displayed token immediately.                                           |
 | `/admin` rejects the token                                  | Confirm the token belongs to this deployed Worker and was not copied with whitespace. Rotate it if its handling is uncertain.                                                                                                |
 | `/healthz` works but readiness fails                        | `/healthz` is only Router-unauthenticated liveness/configuration and should still sit behind Access. Open authenticated Setup or `/api/v1/readiness`, then fix the named schema, binding, release, client, or webhook check. |
 | D1 schema is missing                                        | Confirm the intended account and D1 ID, then rerun `docker compose run --rm --build deploy`; it initializes the baseline before deploying.                                                                                   |

@@ -178,10 +178,12 @@ an ordinary `docker compose up`.
 
    The server-side binding restrictions are separate from `ALLOWED_FORWARD_DESTINATIONS`; every selectable release destination must appear in both that application allow-list and `send_email.allowed_destination_addresses`. The sender must belong to a domain onboarded to Email Service. See [Email Sending from Workers](https://developers.cloudflare.com/email-service/api/send-emails/workers-api/) and [send binding restrictions](https://developers.cloudflare.com/email-service/configuration/send-bindings/).
 
-7. Store a random admin token of at least 32 characters in a password manager.
-   Do not put it in a file, command argument, environment variable, `vars`, or
-   D1. The deployment container asks for it with hidden input and uploads the
-   Worker code and secret together.
+7. The first deployment automatically generates `ADMIN_API_TOKEN` with
+   `openssl rand -base64 48`. It uploads the Worker code and secret together,
+   then displays the 384-bit token once after a successful deployment. Be ready
+   to save that one-time value in a password manager. The token is never written
+   to the host checkout, an environment variable, `vars`, or D1, and Cloudflare
+   cannot reveal it later.
 
 8. Re-run `whoami`, then launch the one-shot deployment container:
 
@@ -191,17 +193,29 @@ an ordinary `docker compose up`.
    ```
 
    The container checks the deployable source, configuration, formatting, types,
-   tests, and Worker build, then requests the stored token with hidden input. It
-   initializes the empty D1 database from the single `0001_initial.sql` baseline
-   and deploys the Worker.
+   tests, and Worker build, then inspects only the names of the target Worker's
+   secrets. It initializes the empty D1 database from the single
+   `0001_initial.sql` baseline and deploys the Worker. A new or missing admin
+   token is generated inside the interactive deployment container; later
+   deployments preserve the existing Cloudflare secret without displaying or
+   rotating it. First-time generation asks for explicit confirmation before
+   creating the value.
    There is no historical upgrade chain because this is the first release. The
    preflight rejects a placeholder account/database, other scaffold values, or
-   an unsafe public hostname posture before changing D1 or deploying. The token
-   is written only to a mode-`0600` temporary file on the ephemeral container's
-   memory-backed `/tmp`, passed through Wrangler's
-   atomic `--secrets-file` deployment, and removed on exit. This avoids the
-   temporary public dummy Worker that a first-run `secret put` can otherwise
-   create.
+   an unsafe public hostname posture before changing D1 or deploying. A newly
+   generated token is written only to a mode-`0600` temporary file on the
+   ephemeral container's memory-backed `/tmp`, passed through Wrangler's atomic
+   `--secrets-file` deployment, and removed on exit. This avoids the temporary
+   public dummy Worker that a first-run `secret put` can otherwise create.
+
+   If the one-time value is lost or rotation is required, generate and deploy a
+   replacement intentionally:
+
+   ```bash
+   docker compose run --rm --build deploy --rotate-admin-token
+   ```
+
+   Ordinary deployments never rotate an existing admin token.
 
    After that first deployment, optional structured features can be enabled
    with separate interactive Worker secrets:
@@ -228,6 +242,11 @@ Cloudflare's inbound message limit is currently 25 MiB. Body/attachment rules mu
 ## Docker
 
 The container runs Wrangler's local Cloudflare runtime; it does not replace the production Email Worker or expose an SMTP server. Production mail must still arrive through Cloudflare Email Routing and the Worker must still be deployed to Cloudflare.
+
+Do not publish port `8787` through Cloudflare Tunnel as the production Router.
+That endpoint uses local emulated D1/R2 state and cannot receive Cloudflare Email
+Routing events. The production `/admin` is served by the deployed Worker's
+Custom Domain and operates on the bound production D1 database and R2 bucket.
 
 Create the local admin secret and start the service:
 

@@ -136,7 +136,8 @@ Protect the HTTP application with Cloudflare Access and disable alternate direct
 - Initialize D1 from the single first-release baseline and keep the `MESSAGE_ARCHIVE` bucket private.
 - When enabling automated release, onboard the release sender domain, add the otherwise optional `send_email` binding and `RELEASE_FROM_ADDRESS`, restrict the binding to exact sender/Gorelo addresses, and live-test threading, sender association, and attachments.
 - Put a metadata-only size rule before body/attachment rules and align it with `MAX_PARSE_BYTES`.
-- Rotate `ADMIN_API_TOKEN`; never commit or log it.
+- Save the one-time, OpenSSL-generated `ADMIN_API_TOKEN` immediately; rotate it
+  only through the explicit deployment option, and never commit or log it.
 - Give `GORELO_API_KEY` only the scopes needed for enabled structured features, and keep the region endpoint exact.
 - Import current Gorelo clients, configure all aliases, and test exact resolution before enabling API-only rules.
 - Test structured mappings with Dry run and fake clients; do not use a production key for test creates.

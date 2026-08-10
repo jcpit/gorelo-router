@@ -1,6 +1,33 @@
 #!/bin/sh
 set -eu
 
+usage() {
+  cat <<'EOF'
+Usage: docker compose run --rm --build deploy [--rotate-admin-token]
+
+Without options, an existing ADMIN_API_TOKEN is preserved. If the target Worker
+is new or the token is missing, a new token is generated and displayed once
+after a successful deployment. Generation requires interactive confirmation.
+
+  --rotate-admin-token  Generate and deploy a replacement token intentionally.
+  -h, --help            Show this help.
+EOF
+}
+
+rotate_admin_token=0
+case "$#:${1:-}" in
+  0:) ;;
+  1:--rotate-admin-token) rotate_admin_token=1 ;;
+  1:-h | 1:--help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
+
 echo "Checking the deployable source tree..."
 npm run security:public
 
@@ -14,56 +41,78 @@ npm test
 npm run build
 
 umask 077
-secret_file="$(mktemp /tmp/gorelo-router-secrets.XXXXXX)"
-terminal_echo_disabled=0
+secret_file=""
+admin_token=""
 cleanup() {
-  if [ "$terminal_echo_disabled" -eq 1 ]; then
-    stty echo 2>/dev/null || true
+  if [ -n "$secret_file" ]; then
+    rm -f -- "$secret_file"
   fi
-  rm -f -- "$secret_file"
+  admin_token=""
 }
 trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-printf "ADMIN_API_TOKEN (32+ characters; input hidden): "
-if [ -t 0 ]; then
-  stty -echo
-  terminal_echo_disabled=1
-fi
-if ! IFS= read -r admin_token; then
-  printf "\nUnable to read ADMIN_API_TOKEN.\n" >&2
+echo "Inspecting the target Worker's admin-secret state..."
+admin_token_state="$(node /app/scripts/admin-token-state.mjs)"
+generate_admin_token=0
+if [ "$rotate_admin_token" -eq 1 ] || [ "$admin_token_state" = "missing" ]; then
+  generate_admin_token=1
+elif [ "$admin_token_state" != "configured" ]; then
+  echo "Unexpected admin-secret state; deployment stopped." >&2
   exit 1
 fi
-if [ "$terminal_echo_disabled" -eq 1 ]; then
-  stty echo
-  terminal_echo_disabled=0
-fi
-printf "\n"
 
-if ! printf "%s" "$admin_token" | node -e '
-  const fs = require("node:fs");
-  const token = fs.readFileSync(0, "utf8");
-  const byteLength = new TextEncoder().encode(token).byteLength;
-  if (
-    token !== token.trim() ||
-    token.length < 32 ||
-    byteLength > 4096 ||
-    /[\u0000-\u001f\u007f]/.test(token) ||
-    token === "replace-with-a-long-random-token"
-  ) {
-    console.error("ADMIN_API_TOKEN must be a non-placeholder value of at least 32 characters and at most 4096 bytes, without control characters or surrounding whitespace.");
-    process.exit(1);
-  }
-  process.stdout.write(JSON.stringify({ ADMIN_API_TOKEN: token }));
-' > "$secret_file"; then
-  exit 1
+if [ "$generate_admin_token" -eq 1 ]; then
+  if [ ! -t 0 ] || [ ! -t 1 ]; then
+    echo "Generating or rotating ADMIN_API_TOKEN requires an interactive terminal and explicit confirmation." >&2
+    exit 1
+  fi
+
+  printf "A new ADMIN_API_TOKEN will be generated and displayed once after deployment. Continue? [y/N] "
+  if ! IFS= read -r confirmation; then
+    printf "\nUnable to read confirmation; deployment stopped.\n" >&2
+    exit 1
+  fi
+  case "$confirmation" in
+    y | Y | yes | YES | Yes) ;;
+    *)
+      echo "Deployment stopped without changing the admin token."
+      exit 1
+      ;;
+  esac
+  unset confirmation
+
+  admin_token="$(openssl rand -base64 48)"
+  secret_file="$(mktemp /tmp/gorelo-router-secrets.XXXXXX)"
+
+  if ! printf "%s" "$admin_token" | node -e '
+    const fs = require("node:fs");
+    const token = fs.readFileSync(0, "utf8");
+    if (!/^[A-Za-z0-9+/]{64}$/.test(token)) {
+      console.error("OpenSSL returned an invalid ADMIN_API_TOKEN.");
+      process.exit(1);
+    }
+    const decoded = Buffer.from(token, "base64");
+    if (decoded.length !== 48 || decoded.toString("base64") !== token) {
+      console.error("OpenSSL returned an invalid ADMIN_API_TOKEN.");
+      process.exit(1);
+    }
+    process.stdout.write(JSON.stringify({ ADMIN_API_TOKEN: token }));
+  ' > "$secret_file"; then
+    exit 1
+  fi
 fi
-unset admin_token
 
 echo "Initializing the D1 schema..."
 npm run db:migrate:remote
 
-echo "Deploying Gorelo Router and its required admin secret atomically..."
-./node_modules/.bin/wrangler deploy --secrets-file "$secret_file"
+if [ "$generate_admin_token" -eq 1 ]; then
+  echo "Deploying Gorelo Router and its generated admin secret atomically..."
+  ./node_modules/.bin/wrangler deploy --secrets-file "$secret_file"
+  printf '\nA new ADMIN_API_TOKEN is active. Save it in your password manager now; Cloudflare cannot reveal it later:\n\n%s\n\n' "$admin_token"
+else
+  echo "Deploying Gorelo Router while preserving its existing admin secret..."
+  ./node_modules/.bin/wrangler deploy
+fi

@@ -8,6 +8,13 @@ Do not include credentials, customer mail, tenant identifiers, or other sensitiv
 
 Cloudflare, Gorelo, webhook, and administrator credentials belong in Cloudflare Worker secrets or the ignored local `.dev.vars` file. Never place them in Wrangler variables, rules, webhook records, fixtures, screenshots, logs, or documentation.
 
+The production deploy container generates a missing `ADMIN_API_TOKEN` with
+`openssl rand -base64 48`, keeps it only in memory and a mode-`0600` file on
+tmpfs, uploads it atomically with the Worker, and displays it once in an
+interactive terminal after success. Cloudflare cannot reveal it later, so save
+the value immediately in a password manager. Ordinary deployments preserve the
+existing secret; rotation requires the explicit `--rotate-admin-token` option.
+
 Deployment account IDs, hostnames, and routing addresses belong in the ignored
 `wrangler.production.jsonc`. They are not authentication secrets, but they can
 identify a customer or tenant. Never force-add or publish that file, and do not
