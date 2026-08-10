@@ -14,14 +14,19 @@ It includes:
 
 - ordered D1 rules with `all`/`any` matching over envelope, header, size, body, attachment, and local spam-score facts;
 - forward, R2-backed internal hold, review-mailbox quarantine, drop, and SMTP-reject actions;
-- destination allow-listing and Cloudflare's independent verified-destination check;
+- named Gorelo mailboxes with one persistent default, stable rule references,
+  destination allow-listing, and Cloudflare's independent verified-destination
+  check;
 - conservative subject-only spam scoring, initially configured for observation rather than blocking;
 - a responsive [Tabler](https://tabler.io/admin-template)-based dashboard at `/admin` with Rules, Quarantine, Audit, Dry run, and Setup workspaces;
 - bounded message audit detail in D1, optional raw RFC 5322 retention in private R2, and scheduled cleanup;
 - versioned quarantine release/dismiss actions with an append-only review timeline;
 - priority-aware MIME parsing only when a rule actually needs body or attachment facts;
 - optional read-only Gorelo client import with any number of exact customer aliases, optional source scopes, and no fuzzy tenant guessing;
-- sample-driven literal field extraction for structured rules, with centrally registered HTTPS webhook destinations and HMAC signatures;
+- Audit-driven and manually supplied sample teaching for literal field
+  extraction, including a short-lived opt-in capture for the next matching
+  message, with centrally registered HTTPS webhook destinations and HMAC
+  signatures;
 - opt-in native Gorelo ticket and alert creation from extracted values, fixed or alias-resolved clients, and current Gorelo catalogs;
 - a durable outbound-delivery ledger with immutable attempt history, bounded webhook retries, and manual review for uncertain Gorelo creates;
 - unit and integration-style Worker tests, plus documented local D1 verification.
@@ -47,7 +52,26 @@ Cloudflare Email Routing ──► Email Worker ──► D1 rules + audit
 
 Forwarding is the primary feature because Gorelo's structured API does not accept raw MIME or attachments. Gorelo's native forwarding route preserves mail semantics and can apply configured group, client, tag, and user metadata; see Gorelo's [custom-domain and forwarding guide](https://help.gorelo.io/custom-domain).
 
-Create several Gorelo forwarding addresses when different alert sources need different metadata, then select one with `action.destination`. A `forward_webhook` rule keeps that original-message forward as its primary external action. Before requesting the forward, the Worker atomically stores the audit event and pending webhook snapshot; it sends the webhook only after Cloudflare accepts the primary forward.
+Create several Gorelo forwarding addresses when different alert sources need
+different metadata, then register them as named mailboxes in **Setup**. Exactly
+one mailbox is the persistent default. A forwarding rule can deliberately
+follow the current default or pin itself to a stable mailbox ID. If no rule
+matches, non-spam mail follows the mailbox currently marked default. Changing
+the default therefore affects unmatched mail and default-following rules, but
+never repoints a rule pinned to a mailbox ID.
+
+Legacy rules containing `action.destination` remain supported. Every mailbox
+or legacy destination address must be both listed in
+`ALLOWED_FORWARD_DESTINATIONS` and independently verified as a Cloudflare Email
+Routing destination. `DEFAULT_GORELO_ADDRESS` is used only to create the first
+registry mailbox and make it the initial default. Once the registry exists, a
+later environment-variable change never silently rewrites its persisted name,
+address, or default selection.
+
+A `forward_webhook` rule keeps the original-message forward as its primary
+external action. Before requesting the forward, the Worker atomically stores
+the audit event and pending webhook snapshot; it sends the webhook only after
+Cloudflare accepts the primary forward.
 
 Use `create_ticket` or `create_alert` only when the extra field-level control is worth giving up the native mail representation. These API-only primary actions call Gorelo's documented `POST /v1/tickets` or `POST /v1/alerts/` endpoint and send the official PascalCase request fields instead of forwarding the inbound message. The Worker requires `MESSAGE_ARCHIVE`, retains the original RFC 5322 message privately, and records the request and attempt in the delivery audit. A definitive preflight/API failure may still use the explicitly configured failure route; an uncertain provider outcome never does. Gorelo authenticates API requests with a scoped `X-API-Key` at the selected regional endpoint; see the official [API overview and regional Swagger links](https://help.gorelo.io/api-overview).
 
@@ -127,13 +151,21 @@ an ordinary `docker compose up`.
    `wrangler.production.jsonc`, replacing only the all-zero `database_id`.
    Preserve the existing `DB` binding; the application depends on that name.
    Keep `MESSAGE_ARCHIVE` bound to the private bucket; raw mail needs no public
-   bucket domain. Add the 31-day lifecycle safety net used with the default
-   30-day retention:
+   bucket domain. Add lifecycle backstops for both object namespaces. The
+   31-day `messages/` rule backs up the default 30-day audit retention; the
+   one-day `parser-samples/` rule is only an orphan safety net for samples that
+   the five-minute application cleanup could not remove:
 
    ```bash
    docker compose run --rm cloudflare r2 bucket lifecycle add \
      mail-parser-quarantine audit-retention messages/ --expire-days 31
+   docker compose run --rm cloudflare r2 bucket lifecycle add \
+     mail-parser-quarantine parser-sample-backstop parser-samples/ --expire-days 1
    ```
+
+   The lifecycle backstop does not replace the scheduled Worker trigger.
+   Teaching samples are application-expired within one hour; R2 lifecycle
+   policies operate at a coarser granularity.
 
 4. Edit the non-secret values in `wrangler.production.jsonc`:
 
@@ -142,8 +174,11 @@ an ordinary `docker compose up`.
    - Replace `*@example.com` in the top-level `addresses` list with the exact
      apex or ingestion subdomain that should be caught and sent to this Worker,
      for example `*@alerts.example.com`.
-   - Replace the scaffold Gorelo address in `DEFAULT_GORELO_ADDRESS` and
-     `ALLOWED_FORWARD_DESTINATIONS`.
+   - Replace the scaffold Gorelo address in `DEFAULT_GORELO_ADDRESS` and list
+     every intended Gorelo/review address in
+     `ALLOWED_FORWARD_DESTINATIONS`. The default value bootstraps the first
+     named mailbox only; later mailbox/default changes are made in Setup and
+     are not silently resynchronized from this variable.
    - Select the correct `GORELO_API_BASE_URL` region.
    - Leave `workers_dev` and `preview_urls` set to `false`.
    - Keep `SPAM_ACTION=forward` until real scores have been reviewed.
@@ -205,9 +240,11 @@ an ordinary `docker compose up`.
 
    The container checks the deployable source, configuration, formatting, types,
    tests, and Worker build, then inspects only the names of the target Worker's
-   secrets. It initializes the empty D1 database from the single
-   `0001_initial.sql` baseline, uploads and activates a Worker version, then
-   reconciles its HTTP, schedule, and Email Routing triggers. A new or missing
+   secrets. It applies every pending additive D1 migration in order, uploads
+   and activates a Worker version, then reconciles its HTTP, schedule, and
+   Email Routing triggers. The same Docker deployment command initializes a
+   new database and upgrades an existing one; migrations are recorded by D1
+   and are not reapplied. A new or missing
    admin token is generated inside the interactive deployment container; later
    deployments preserve the existing Cloudflare secret without displaying or
    rotating it. First-time generation asks for explicit confirmation before
@@ -216,8 +253,8 @@ an ordinary `docker compose up`.
    catch-all is managed outside Wrangler, trigger reconciliation shows the exact
    takeover conflict and asks separately before replacing it. Review that target
    and action, plus any old Worker-owned address deletion in the plan, before
-   accepting.
-   There is no historical upgrade chain because this is the first release. The
+   accepting. There is no automatic database downgrade; follow the backup and
+   recovery guidance before production upgrades. The
    preflight rejects a placeholder account/database, other scaffold values, or
    an unsafe public hostname posture before changing D1 or deploying. A newly
    generated token is written only to a mode-`0600` temporary file on the
@@ -302,7 +339,15 @@ keep write access restricted to the owner.
 docker compose up --build
 ```
 
-Open `http://localhost:8787/admin`. The container automatically initializes the local D1 schema before Wrangler starts. Docker uses `wrangler.docker.jsonc`, which enables a local-only simulated `RELEASE_EMAIL` binding; the ignored production configuration keeps that optional. Wrangler's local D1 database, R2 message archive, and simulated Email Sending output persist in the `gorelo-router-data` Compose volume across rebuilds and ordinary `docker compose down` operations. Source, schema, and Wrangler configuration files are mounted read-only for local reloads; rebuild after changing dependencies or container files.
+Open `http://localhost:8787/admin`. The container automatically applies every
+pending local D1 migration before Wrangler starts. Docker uses
+`wrangler.docker.jsonc`, which enables a local-only simulated `RELEASE_EMAIL`
+binding; the ignored production configuration keeps that optional. Wrangler's
+local D1 database, R2 message archive, and simulated Email Sending output
+persist in the `gorelo-router-data` Compose volume across rebuilds and ordinary
+`docker compose down` operations. Source, schema, and Wrangler configuration
+files are mounted read-only for local reloads; rebuild after changing
+dependencies or container files.
 
 The local `send_email` binding does not deliver real mail: Wrangler logs and stores a simulation. That makes the release workflow safe to exercise in Docker. A deliberately configured remote binding sends real messages; see Cloudflare's [Email Sending local-development behavior](https://developers.cloudflare.com/email-service/local-development/sending/).
 
@@ -403,17 +448,48 @@ docker build --target test --tag gorelo-router:test .
 
 `/admin` is a responsive Tabler-based operations console. The exact-pinned `@tabler/core` package is bundled and its CSS is served by the Worker at `/admin/tabler.css`; the dashboard does not depend on a public CDN. The bearer token remains in page memory and is not written to browser storage.
 
-- **Rules** provides a guided rule builder, JSON mode, templates, enable/disable controls, deletion, a **Teach from sample** workflow, forward-plus-webhook mapping, and API-only Gorelo ticket/alert mapping. Extraction uses literal delimiters—never user regular expressions or executable templates. Structured selectors come from current Gorelo catalogs; custom-asset and uptime IDs are rejected until they can be selected from a trustworthy catalog.
+- **Rules** provides a guided rule builder, JSON mode, templates,
+  enable/disable controls, deletion, named Gorelo mailbox selectors, a **Teach
+  from sample** workflow, forward-plus-webhook mapping, and API-only Gorelo
+  ticket/alert mapping. Extraction uses literal delimiters—never user regular
+  expressions or executable templates. Structured selectors come from current
+  Gorelo catalogs; custom-asset and uptime IDs are rejected until they can be
+  selected from a trustworthy catalog.
 - **Quarantine** shows pending, failed, released, and dismissed counts; searchable state filters; bounded headers/body/attachment facts; the processing and review timelines; EML download; and versioned Release or Dismiss actions when the deployment supports them. A runtime banner distinguishes a stored internal hold from mailbox-forward mode.
-- **Audit** expands each recent processing record into the decision reason, spam threshold/reasons, matched rule, sanitized headers, safe text preview, attachment metadata, processing trace, mapped variables, resolved Gorelo client, provider ID when returned, immutable delivery attempts, and an authenticated EML download when the original was retained. “Forwarded” means Cloudflare accepted a forward or Gorelo confirmed an API create; inspect the action type for the exact meaning.
+- **Audit** expands each recent processing record into the decision reason,
+  spam threshold/reasons, matched rule, resolved mailbox, sanitized headers,
+  safe text preview, attachment metadata, processing trace, mapped variables,
+  resolved Gorelo client, provider ID when returned, immutable delivery
+  attempts, and an authenticated EML download when the original was retained.
+  An operator can create a disabled parser-rule draft directly from a message.
+  “Forwarded” means Cloudflare accepted a forward or Gorelo confirmed an API
+  create; inspect the action type for the exact meaning.
 - **Dry run** evaluates supplied facts against current policy without sending or storing a message.
-- **Setup** shows non-secret, enabled-rule-aware readiness; tests the selected Gorelo region; imports/searches clients; batch-adds and groups any number of literal global or source-scoped aliases per customer; edits aliases with optimistic versioning; previews exact resolution; and registers/version-controls webhook destinations. API keys and signing secrets are never collected by the UI.
+- **Setup** manages the named Gorelo mailbox registry and its one persistent
+  default; shows non-secret, enabled-rule-aware readiness; tests the selected
+  Gorelo region; imports/searches clients; batch-adds and groups any number of
+  literal global or source-scoped aliases per customer; edits aliases with
+  optimistic versioning; previews exact resolution; and registers/version-controls
+  webhook destinations. API keys and signing secrets are never collected by
+  the UI.
 
 Message HTML is never inserted into the dashboard. Preview content is rendered as text, while raw RFC 5322 is returned only as an authenticated attachment with `nosniff`, a sandbox CSP, and no-store caching.
 
 ## Teach from a sample
 
-For `forward_webhook`, `create_ticket`, and `create_alert` rules, select **Teach from sample**, paste one representative email (or load the current Dry-run sample), highlight a changing value in From, To, Subject, or the plain-text body, and give it a safe name such as `customer` or `device`. The Worker infers bounded literal text around that selection, verifies that the resulting field extracts the exact highlighted value, and previews it as `{{customer}}`. Repeat for the other values, apply the variables, then Dry run and save the rule. This follows the approachable select-and-name workflow popularized by Zapier Email Parser, but it does not share or claim identical parsing internals.
+For `forward_webhook`, `create_ticket`, and `create_alert` rules, start with an
+existing message in **Audit** and select **Create rule from this email**. Choose
+the intended action and, for an email-forwarding action, the named Gorelo
+mailbox. The dashboard opens a conservatively prefilled, disabled draft; review
+its exact matching conditions before enabling it. Highlight a changing value
+in From, To, Subject, or the normalized plain-text body and give it a safe name
+such as `customer` or `device`. The Worker infers bounded literal text around
+that selection, verifies that the resulting field extracts the exact
+highlighted value, and previews it as `{{customer}}`. Repeat for the other
+values, apply the variables, then Dry run and save the rule. A pasted message or
+the current Dry-run sample can still be used when appropriate. This follows the
+approachable select-and-name workflow popularized by Zapier Email Parser, but
+it does not share or claim identical parsing internals.
 
 At runtime, each learned name becomes a bounded string in the rule's extracted variable map:
 
@@ -423,7 +499,23 @@ At runtime, each learned name becomes a bounded string in the rule's extracted v
 | `create_ticket`   | Substituted into the title, description, or created-by templates; one variable may also resolve the exact Gorelo client through configured aliases. |
 | `create_alert`    | Substituted into the alert name, resource, or description; one variable may likewise resolve the exact Gorelo client.                               |
 
-The trainer sample exists in page memory and is posted only to the authenticated inference endpoint. That endpoint does not query D1, write D1/R2, or call Gorelo or a webhook; the sample value is not stored with the rule. Only the variable name and inferred literal markers are applied. Those markers can contain adjacent static email text, so avoid training on credentials or unnecessary personal data. HTML is never rendered, credential-shaped variable names are rejected, selections and outputs are bounded, and inference errors do not echo sample content.
+When an Audit record has a usable body, the trainer receives normalized plain
+text only. It never renders or exposes HTML, attachments, or the raw RFC 5322
+message. The selected sample is not stored with the rule: only the variable name
+and inferred literal markers are applied. Those markers can contain adjacent
+static email text, so avoid training on credentials or unnecessary personal
+data. Credential-shaped variable names are rejected, selections and outputs are
+bounded, and inference errors do not echo sample content.
+
+If an older Audit record has no usable body, select **Capture next**. This is an
+explicit, short-lived request rather than a global capture mode. Confirm the
+exact recipient and narrow the request with the offered exact sender
+address/domain and literal subject filter. For 15 minutes, the first inbound
+message satisfying those criteria supplies the teaching sample while its normal
+routing continues unchanged. Only a bounded normalized plain-text sample is
+placed in private R2, where it is available for at most 60 minutes. The trainer
+still receives no HTML, attachments, raw MIME, or R2 object identifier. An
+unmatched, cancelled, or expired request captures nothing.
 
 The current trainer learns one message layout per rule; it does not retain several samples, build a semantic model, or adapt automatically when a vendor changes format. To retrain, edit the rule, teach from a current message, reuse the existing variable names so downstream mappings remain valid, apply the replacement fields, and Dry run representative messages before saving or re-enabling it. Retraining replaces those fields and may stop the old layout matching. If old and new layouts coexist, use separate, narrowly conditioned rules in explicit priority order. Required values fail safely instead of being guessed.
 
@@ -436,6 +528,11 @@ Every `/api/v1` endpoint requires `Authorization: Bearer <ADMIN_API_TOKEN>`. `/h
 | `GET`    | `/api/v1/runtime`                                          | Read policy posture and review/release capabilities        |
 | `GET`    | `/api/v1/setup/status`                                     | Read non-secret deployment/integration readiness           |
 | `POST`   | `/api/v1/integrations/gorelo/test`                         | Seven bounded key/selector-catalog diagnostic probes       |
+| `GET`    | `/api/v1/integrations/gorelo/mailboxes`                    | List named mailboxes, default, and routing posture         |
+| `POST`   | `/api/v1/integrations/gorelo/mailboxes`                    | Register an allow-listed Gorelo forwarding mailbox         |
+| `PUT`    | `/api/v1/integrations/gorelo/mailboxes/default`            | Version-change the persistent default mailbox              |
+| `PUT`    | `/api/v1/integrations/gorelo/mailboxes/:id`                | Version-rename or enable/disable a mailbox                 |
+| `DELETE` | `/api/v1/integrations/gorelo/mailboxes/:id?version=…`      | Version-delete an unreferenced, non-default mailbox        |
 | `GET`    | `/api/v1/integrations/gorelo/catalogs/:kind`               | Read a bounded cached/live Gorelo selector catalog         |
 | `GET`    | `/api/v1/integrations/gorelo/clients`                      | List/search imported clients and aliases                   |
 | `POST`   | `/api/v1/integrations/gorelo/clients/import`               | Import the complete bounded Gorelo client catalog          |
@@ -449,6 +546,10 @@ Every `/api/v1` endpoint requires `Authorization: Bearer <ADMIN_API_TOKEN>`. `/h
 | `PUT`    | `/api/v1/webhooks/:id`                                     | Version-update/enable/disable a destination                |
 | `DELETE` | `/api/v1/webhooks/:id?version=…`                           | Version-delete a destination                               |
 | `POST`   | `/api/v1/extraction/infer`                                 | Infer and verify literal markers from one selected sample  |
+| `GET`    | `/api/v1/parser-captures`                                  | List recent non-content teaching-capture state             |
+| `POST`   | `/api/v1/parser-captures`                                  | Arm one bounded capture from an existing Audit event       |
+| `GET`    | `/api/v1/parser-captures/:id`                              | Poll one capture's safe state and sample availability      |
+| `POST`   | `/api/v1/parser-captures/:id/cancel`                       | Version-cancel a pending capture                           |
 | `GET`    | `/api/v1/rules`                                            | List rules in evaluation order                             |
 | `POST`   | `/api/v1/rules`                                            | Create a rule                                              |
 | `GET`    | `/api/v1/rules/:id`                                        | Read one rule                                              |
@@ -458,6 +559,7 @@ Every `/api/v1` endpoint requires `Authorization: Bearer <ADMIN_API_TOKEN>`. `/h
 | `GET`    | `/api/v1/events?limit=50`                                  | Read recent audit summaries                                |
 | `GET`    | `/api/v1/events/:id`                                       | Read one hydrated audit record and outbound attempts       |
 | `GET`    | `/api/v1/events/:id/raw`                                   | Download a retained, integrity-checked RFC 5322 message    |
+| `GET`    | `/api/v1/events/:id/training-sample`                       | Read the safest available bounded plain-text sample        |
 | `GET`    | `/api/v1/deliveries`                                       | Filter outbound delivery summaries                         |
 | `GET`    | `/api/v1/deliveries/:id`                                   | Read a safe payload snapshot and immutable attempt history |
 | `GET`    | `/api/v1/quarantine?state=all&limit=50`                    | List review items and state counts                         |
@@ -480,6 +582,42 @@ Alias batches accept one customer and one to 100 independently scoped values. Th
 }
 ```
 
+Mailbox addresses are normalized and immutable after registration, while the
+display name and enabled state use optimistic versions. The default cannot be
+disabled or deleted, and a mailbox referenced by a rule cannot be disabled or
+deleted until those rules are repointed. Every registered address must already
+be in `ALLOWED_FORWARD_DESTINATIONS`; duplicate names/addresses, stale versions,
+and protected mutations fail without redirecting any rule. Changing the default
+affects only unmatched mail and forwarding rules that intentionally omit both a
+mailbox ID and a legacy literal destination.
+
+The training-sample endpoint never returns raw MIME, HTML, attachments, an R2
+key, or a digest. It prefers an unexpired temporary capture, then an
+integrity-checked retained original, then the bounded D1 audit preview. Its
+`body.status`, `body.source`, `canCaptureNext`, and machine-readable warnings
+make truncation, absence, expiry, and storage/integrity failures explicit rather
+than silently presenting partial text as complete.
+
+Creating a parser capture requires an existing Audit event and the private
+`MESSAGE_ARCHIVE` binding. The wait may be 5 to 60 minutes, only one capture may
+be active for a recipient, and at most ten may be active globally; conflicts
+return `409`, while the global bound returns `429`. State progresses through
+`pending`, one-message `claimed`, and `captured`, or terminates as `cancelled`,
+`expired`, or `failed`. Cancellation requires the current version. List and
+detail responses expose match criteria and safe state only—not sample content
+or private storage locators. After capture, clients use the returned
+`capturedEventId` with that event's training-sample endpoint.
+
+The dashboard defaults to the exact prior envelope sender. A matching message
+can claim the capture only when Cloudflare reports it as forwardable, it is
+classified as non-spam, and it receives an accepted processing action such as
+forward, webhook, ticket, or alert. Drop, reject, quarantine, oversize, and
+spam-classified messages leave the request waiting. Cloudflare's current
+[mail-authentication policy](https://developers.cloudflare.com/changelog/2025-06-30-mail-authentication/)
+requires at least SPF or DKIM for forwarding, but envelope matching is still a
+filter rather than DMARC identity alignment. Keep the window short and use the
+narrowest sender/subject criteria available.
+
 Review items begin at version `1`. Each successful state mutation increments the version; stale Release or Dismiss requests receive `409 Conflict`. Normal paths are `pending → releasing → released`, a definite message-read/preparation failure from `releasing → release_failed`, retry from `release_failed`, or `pending/release_failed → dismissed`. After the send binding has been invoked, any dispatch exception or completion-write ambiguity stays non-actionable in `releasing`, records a `release_uncertain` action with a fixed safe reason, and requires manual review. The action table is append-only and returned as the detail timeline.
 
 Release does not resend the archived headers blindly. The Worker removes obsolete delivery/authentication headers, sets service-controlled `From: Gorelo Router <RELEASE_FROM_ADDRESS>` and `To`, renames the original visible addresses to `X-Mail-Parser-Original-From` and `X-Mail-Parser-Original-To`, and adds the original envelope sender/recipient plus `X-Mail-Parser-Release-Id`. If the original did not supply `Reply-To`, the original envelope sender becomes `Reply-To`. The original MIME body and attachments remain intact, while Cloudflare Email Sending authenticates the new service sender. From the instant the send binding is invoked, a rejection, timeout, Worker interruption, or D1 completion failure cannot prove the message was not accepted. The item therefore stays `releasing` and cannot be released or dismissed again automatically; check the destination and recorded message ID, if available, before any manual remediation.
@@ -500,19 +638,57 @@ Webhook URLs are operator-registered server resources, not values extracted from
 
 Depending on `ARCHIVE_MODE`, private R2 stores the exact raw RFC 5322 message under an opaque date/UUID key. Internal quarantine and every API-only Gorelo ticket/alert action always store it. Every new D1 archive reference pins the object's SHA-256. Before authenticated EML download, quarantine release, or on-demand MIME hydration consumes a retained object, the Worker performs a bounded read and verifies its size and any pinned digest; a mismatch blocks use of that object. R2 encrypts objects and their metadata at rest, but the bucket must remain private; see [R2 data security](https://developers.cloudflare.com/r2/reference/data-security/).
 
-D1 stores message ID, envelope addresses, subject, size, score/reasons and threshold, decision reason, matched-rule attribution, destination, status/error, bounded sanitized headers, up to 8,000 characters of text preview, attachment names/types/sizes, processing trace, archive availability, and the review timeline. Sensitive header names such as authorization, cookies, and API keys are redacted. D1 previews and R2 originals are still sensitive client data, and a retained EML may contain active or malicious attachments.
+D1 stores message ID, envelope addresses, subject, size, score/reasons and
+threshold, decision reason, matched-rule attribution, resolved destination and
+mailbox snapshot, status/error, bounded sanitized headers, up to 8,000
+characters of text preview, attachment names/types/sizes, processing trace,
+archive availability, and the review timeline. It also stores named mailbox
+configuration and the non-content state/match criteria for an explicitly
+requested next-message capture. Sensitive header names such as authorization,
+cookies, and API keys are redacted. D1 previews and R2 originals are still
+sensitive client data, and a retained EML may contain active or malicious
+attachments.
+
+A next-message teaching capture is a separate, temporary private R2 object
+under `parser-samples/` containing normalized plain text only. It expires within
+60 minutes and is not the retained raw message archive; HTML, attachments, and
+raw MIME are never made available to the trainer. Every five-minute maintenance
+run recovers claims abandoned for ten minutes, expires elapsed requests, scans
+the entire `parser-samples/` prefix for objects older than 55 minutes, removes
+tracked expired samples R2-first, and removes terminal non-content capture rows
+after 24 hours. The prefix scan also removes an orphan left by a failed D1
+finalization. The one-day R2 lifecycle rule is a final backstop if scheduled
+execution or D1 coordination remains unavailable; it is deliberately not the
+primary 60-minute retention control.
 
 For webhook actions, D1 additionally stores the destination ID (not URL), destination version and endpoint digest, event type, mapped variables, optional resolved client descriptor, payload digest, state/version, safe error category, and immutable attempt timestamps/statuses. It never stores the signing secret or request authentication headers. Mapped variables can still contain client data, so the same retention and access controls apply.
 
 For API-only Gorelo actions, D1 stores a bounded credential-free snapshot of the extracted variables, resolved client, regional target, and exact structured request, plus its digest, state/version, provider ticket ID when Gorelo returns one, and immutable attempts. Gorelo's alert response confirms success without returning an alert ID. The request uses Gorelo's PascalCase fields such as `Title`, `ClientId`, `StatusId`, `GroupId`, and `TypeId` for tickets, or `Name`, `ClientId`, `Resource`, and `Severity` for alerts. It never stores `GORELO_API_KEY` or request headers.
 
-The daily cron first deletes every expired R2 object, clears its private archive reference, and only then deletes the D1 event; quarantine and review-action rows cascade with it. If an expired D1 row references raw content but the R2 binding is unavailable, cleanup fails closed rather than orphaning the object. Configure an R2 lifecycle rule as a secondary orphan safeguard and align both retention settings with client agreements.
+The daily audit cron first deletes every expired `messages/` R2 object, clears
+its private archive reference, and only then deletes the D1 event; quarantine
+and review-action rows cascade with it. If an expired D1 row references raw
+content but the R2 binding is unavailable, cleanup fails closed rather than
+orphaning the object. Keep both namespace-specific R2 lifecycle rules as
+secondary safeguards and align audit retention with client agreements.
 
 - Parser, persisted-rule, D1, or forward failures send the original message to the explicit failure address, or to the quarantine address when configured as the fallback. The audit status remains `failed`.
 - Invalid runtime configuration is rejected directly because a partially loaded failure route cannot be trusted.
 - With no failure/quarantine destination—or when fallback forwarding also fails—the Worker returns an SMTP rejection instead of silently routing an uninspected message into Gorelo.
 - An internal hold waits for both R2 and D1; if either cannot be committed, the Worker deletes any partial object and enters the failure/reject path instead of silently losing the message. Forward and mailbox-quarantine paths also synchronously create their D1 event before asking Cloudflare to forward; a webhook path atomically creates its pending delivery in the same batch. The event begins in an unconfirmed failure state and is updated only after Cloudflare accepts the forward request. That records the handoff attempt, but it still cannot prove final delivery by the downstream mailbox.
-- Forward and quarantine destinations are checked against `ALLOWED_FORWARD_DESTINATIONS` when rules are saved and again when evaluated.
+- Named mailbox and legacy forward/quarantine destinations are checked against
+  `ALLOWED_FORWARD_DESTINATIONS` when configured or saved and again when
+  evaluated. A missing, disabled, or no-longer-allow-listed selected mailbox
+  fails closed; it does not fall through to the default. Cloudflare must
+  independently verify every address.
+- Teaching capture is ancillary to delivery: an unavailable match lookup adds
+  only a safe audit warning, while a claimed-message MIME or sample-storage
+  failure records a bounded capture error. Neither replaces the message's
+  already selected routing decision. The normal event insert and successful
+  capture finalization are committed in one D1 batch before a forward. If that
+  commit fails, the sample object is removed and the normal pre-forward audit
+  failure path applies; a stale claim is later recovered or expired by the
+  five-minute maintenance job.
 - Each client can have multiple global and source-scoped aliases. Batch creation is all-or-none, and alias edits/deletes require the current version. Client matching remains deterministic: scoped alias, global alias, then exact non-stale catalog identity. A stale exact alias is terminal and never falls through to another customer. New aliases that equal another current client's exact catalog identity are rejected; if a later import creates that collision, resolution becomes ambiguous and fails closed.
 - Required extraction or webhook failure never rolls back a completed primary email forward. Explicit HTTP `429`/5xx responses are retryable with the same delivery ID for at most five total automatic attempts. Network errors and timeouts are `uncertain` and are not automatically replayed because the receiver may already have accepted the request; abandoned in-flight claims older than ten minutes and destination-version drift follow the same manual-review boundary.
 - A Gorelo ticket/alert action is API-only on its primary path. Preflight failures and definitive 4xx responses, including `429`, are terminal rather than replayed; the Worker then uses the explicit failure destination or rejects when none is configured. Gorelo's create endpoints do not advertise an idempotency key, so 5xx, network, timeout, invalid-response, oversized-response, and abandoned-claim outcomes are `uncertain`; they are never automatically replayed or converted into a fallback forward. Investigate Gorelo and the audit before taking any manual action.

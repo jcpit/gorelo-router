@@ -14,6 +14,10 @@ import {
   digestDeliveryPayload,
 } from "./delivery-repository";
 import type { DeliveryActionType } from "./delivery-types";
+import {
+  parserCaptureFinalizeStatement,
+  type FinalizeParserCaptureInput,
+} from "./parser-capture-repository";
 import { ruleInputSchema, type RuleInput } from "./validation";
 
 interface RuleRow {
@@ -42,6 +46,8 @@ interface EventRow {
   matched_rule_id: string | null;
   matched_rule_name: string | null;
   destination: string | null;
+  destination_mailbox_id: string | null;
+  destination_mailbox_name: string | null;
   status: ProcessingEvent["status"];
   error: string | null;
   created_at: string;
@@ -80,6 +86,7 @@ interface QuarantineStorageRow {
 const EVENT_SELECT = `SELECT p.id, p.message_id, p.envelope_from, p.envelope_to,
        p.subject, p.raw_size, p.spam_score, p.spam_reasons_json,
        p.decision, p.matched_rule_id, p.matched_rule_name, p.destination,
+       p.destination_mailbox_id, p.destination_mailbox_name,
        p.status, p.error, p.created_at, p.audit_json, p.archive_key,
        q.object_key AS quarantine_object_key,
        q.state AS quarantine_state,
@@ -265,6 +272,12 @@ function rowToEvent(
       ? { matchedRuleName: row.matched_rule_name }
       : {}),
     ...(row.destination ? { destination: row.destination } : {}),
+    ...(row.destination_mailbox_id
+      ? { destinationMailboxId: row.destination_mailbox_id }
+      : {}),
+    ...(row.destination_mailbox_name
+      ? { destinationMailboxName: row.destination_mailbox_name }
+      : {}),
     status: row.status,
     ...(row.error ? { error: row.error } : {}),
     audit: parseAudit(row.audit_json, row.archive_key !== null),
@@ -301,18 +314,35 @@ export async function getRule(
   return row ? rowToRule(row) : null;
 }
 
+export class RuleMailboxUnavailableError extends Error {
+  override readonly name = "RuleMailboxUnavailableError";
+
+  constructor() {
+    super("The selected Gorelo mailbox is no longer enabled");
+  }
+}
+
+function actionMailboxId(input: RuleInput): string | null {
+  return "mailboxId" in input.action ? (input.action.mailboxId ?? null) : null;
+}
+
 export async function createRule(
   db: D1Database,
   input: RuleInput,
 ): Promise<StoredRule> {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  await db
+  const mailboxId = actionMailboxId(input);
+  const result = await db
     .prepare(
       `INSERT INTO rules
          (id, name, description, priority, enabled, match_mode,
           conditions_json, action_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE ? IS NULL OR EXISTS (
+          SELECT 1 FROM gorelo_mailboxes
+           WHERE id = ? AND enabled = 1
+        )`,
     )
     .bind(
       id,
@@ -325,8 +355,11 @@ export async function createRule(
       JSON.stringify(input.action),
       now,
       now,
+      mailboxId,
+      mailboxId,
     )
     .run();
+  if (result.meta.changes !== 1) throw new RuleMailboxUnavailableError();
   return { id, ...input, createdAt: now, updatedAt: now };
 }
 
@@ -340,12 +373,17 @@ export async function updateRule(
     return null;
   }
   const now = new Date().toISOString();
-  await db
+  const mailboxId = actionMailboxId(input);
+  const result = await db
     .prepare(
       `UPDATE rules
           SET name = ?, description = ?, priority = ?, enabled = ?, match_mode = ?,
               conditions_json = ?, action_json = ?, updated_at = ?
-        WHERE id = ?`,
+        WHERE id = ?
+          AND (? IS NULL OR EXISTS (
+            SELECT 1 FROM gorelo_mailboxes
+             WHERE id = ? AND enabled = 1
+          ))`,
     )
     .bind(
       input.name,
@@ -357,8 +395,14 @@ export async function updateRule(
       JSON.stringify(input.action),
       now,
       id,
+      mailboxId,
+      mailboxId,
     )
     .run();
+  if (result.meta.changes !== 1) {
+    if (!(await getRule(db, id))) return null;
+    throw new RuleMailboxUnavailableError();
+  }
   return { id, ...input, createdAt: existing.createdAt, updatedAt: now };
 }
 
@@ -375,6 +419,10 @@ export interface RecordEventOptions {
   objectKey?: string;
   sha256?: string;
   actor?: string;
+  parserCapture?: {
+    id: string;
+    input: FinalizeParserCaptureInput;
+  };
 }
 
 export interface ListQuarantineOptions {
@@ -469,9 +517,21 @@ export async function recordEvent(
   options: RecordEventOptions = {},
 ): Promise<void> {
   const eventStatement = eventInsertStatement(db, event, options);
+  const captureStatement = options.parserCapture
+    ? parserCaptureFinalizeStatement(
+        db,
+        options.parserCapture.id,
+        options.parserCapture.input,
+      )
+    : undefined;
 
   if (!event.quarantine) {
-    await eventStatement.run();
+    if (captureStatement) {
+      const results = await db.batch([eventStatement, captureStatement]);
+      assertCaptureEventBatch(results, 0, 1);
+    } else {
+      await eventStatement.run();
+    }
     return;
   }
 
@@ -522,7 +582,31 @@ export async function recordEvent(
       event.createdAt,
     );
 
-  await db.batch([eventStatement, quarantineStatement, actionStatement]);
+  const results = await db.batch([
+    eventStatement,
+    quarantineStatement,
+    actionStatement,
+    ...(captureStatement ? [captureStatement] : []),
+  ]);
+  if (captureStatement) assertCaptureEventBatch(results, 0, 3);
+}
+
+function statementChangedExactlyOnce(result: D1Result | undefined): boolean {
+  const changes = result?.meta?.changes;
+  return changes === undefined || changes === 1;
+}
+
+function assertCaptureEventBatch(
+  results: D1Result[],
+  eventIndex: number,
+  captureIndex: number,
+): void {
+  if (
+    !statementChangedExactlyOnce(results[eventIndex]) ||
+    !statementChangedExactlyOnce(results[captureIndex])
+  ) {
+    throw new Error("Parser capture finalization did not commit atomically");
+  }
 }
 
 function eventInsertStatement(
@@ -530,14 +614,21 @@ function eventInsertStatement(
   event: ProcessingEvent,
   options: RecordEventOptions,
 ): D1PreparedStatement {
+  const capture = options.parserCapture;
   return db
     .prepare(
       `INSERT INTO processing_events
          (id, message_id, envelope_from, envelope_to, subject, raw_size,
           spam_score, spam_reasons_json, decision, matched_rule_id,
-          matched_rule_name, destination, status, error, created_at, audit_json,
+          matched_rule_name, destination, destination_mailbox_id,
+          destination_mailbox_name, status, error, created_at, audit_json,
           archive_key, archive_sha256)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE ? IS NULL OR EXISTS (
+          SELECT 1 FROM parser_captures
+           WHERE id = ? AND version = ? AND state = 'claimed'
+             AND claim_event_id = ?
+        )`,
     )
     .bind(
       event.id,
@@ -552,12 +643,18 @@ function eventInsertStatement(
       event.matchedRuleId ?? null,
       event.matchedRuleName ?? null,
       event.destination ?? null,
+      event.destinationMailboxId ?? null,
+      event.destinationMailboxName ?? null,
       event.status,
       event.error ?? null,
       event.createdAt,
       JSON.stringify(eventAudit(event)),
       options.objectKey ?? null,
       options.sha256 ?? null,
+      capture?.id ?? null,
+      capture?.id ?? null,
+      capture?.input.expectedVersion ?? null,
+      capture?.input.claimEventId ?? null,
     );
 }
 
@@ -607,7 +704,19 @@ async function recordEventWithPendingDelivery(
       event.createdAt,
       event.createdAt,
     );
-  await db.batch([eventInsertStatement(db, event, options), deliveryStatement]);
+  const captureStatement = options.parserCapture
+    ? parserCaptureFinalizeStatement(
+        db,
+        options.parserCapture.id,
+        options.parserCapture.input,
+      )
+    : undefined;
+  const results = await db.batch([
+    eventInsertStatement(db, event, options),
+    deliveryStatement,
+    ...(captureStatement ? [captureStatement] : []),
+  ]);
+  if (captureStatement) assertCaptureEventBatch(results, 0, 2);
   return deliveryId;
 }
 
@@ -673,6 +782,7 @@ const EVENT_SEARCH_COLUMNS = [
   "p.decision",
   "p.matched_rule_name",
   "p.destination",
+  "p.destination_mailbox_name",
   "p.status",
   "p.error",
   "p.audit_json",

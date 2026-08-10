@@ -4,15 +4,66 @@ import type { Env } from "../src/types";
 import { config } from "./helpers";
 
 function database(ready = true): D1Database {
-  return {
-    prepare: vi.fn(() => ({
-      all: ready
-        ? vi.fn(async () => ({ success: true, results: [], meta: {} }))
-        : vi.fn(async () => {
-            throw new Error("missing table");
-          }),
-    })),
-  } as unknown as D1Database;
+  let mailboxInitialized = false;
+  const mailbox = {
+    id: "00000000-0000-4000-8000-000000000001",
+    name: "Default Gorelo mailbox",
+    address: "tickets@gorelo.example",
+    enabled: 1,
+    is_default: 1,
+    version: 1,
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  };
+  const db = {
+    prepare: vi.fn((sql: string) => {
+      const statement = {
+        bind: vi.fn(() => statement),
+        all: vi.fn(async () => {
+          if (!ready) throw new Error("missing table");
+          if (sql.includes("FROM gorelo_mailboxes")) {
+            return {
+              success: true,
+              results: mailboxInitialized ? [mailbox] : [],
+              meta: {},
+            };
+          }
+          return { success: true, results: [], meta: {} };
+        }),
+        first: vi.fn(async () => {
+          if (!ready) throw new Error("missing table");
+          if (sql.includes("COUNT(*) AS count FROM gorelo_mailboxes")) {
+            return { count: mailboxInitialized ? 1 : 0 };
+          }
+          if (sql.includes("FROM gorelo_mailbox_settings")) {
+            return mailboxInitialized
+              ? {
+                  default_mailbox_id: mailbox.id,
+                  version: 1,
+                  updated_at: mailbox.updated_at,
+                }
+              : null;
+          }
+          if (sql.includes("FROM gorelo_mailboxes m")) {
+            return mailboxInitialized ? mailbox : null;
+          }
+          return null;
+        }),
+        run: vi.fn(async () => {
+          if (!ready) throw new Error("missing table");
+          if (sql.includes("INSERT INTO gorelo_mailbox_settings")) {
+            mailboxInitialized = true;
+          }
+          return { success: true, meta: { changes: 1 } };
+        }),
+      };
+      return statement;
+    }),
+    batch: vi.fn(async (statements: D1PreparedStatement[]) =>
+      Promise.all(statements.map((statement) => statement.run())),
+    ),
+  };
+  return db as unknown as D1Database;
 }
 
 function databaseWithEnabledRules(
@@ -26,37 +77,81 @@ function databaseWithEnabledRules(
     webhookDestinationHosts?: string[];
   } = {},
 ): D1Database {
-  return {
-    prepare: vi.fn((sql: string) => ({
-      all: vi.fn(async () => ({
-        success: true,
-        results: sql.includes("AS webhook_destination_host")
-          ? (options.webhookDestinationHosts ?? []).map((host) => ({
-              webhook_destination_host: host,
-            }))
-          : [],
-        meta: {},
-      })),
-      first: vi.fn(async () =>
-        sql.includes("AS direct_gorelo")
-          ? {
-              direct_gorelo: directGorelo,
-              webhooks,
-              webhook_client_resolution: sql.includes(
-                "AS webhook_client_resolution",
-              )
-                ? (options.webhookClientResolution ?? 0)
-                : 0,
-              unavailable_webhook_destinations:
-                options.unavailableWebhookDestinations ?? 0,
-              unavailable_fixed_clients: options.unavailableFixedClients ?? 0,
-            }
-          : sql.includes("COUNT(*) AS count")
-            ? { count: options.currentClients ?? 0 }
-            : null,
-      ),
-    })),
-  } as unknown as D1Database;
+  let mailboxInitialized = false;
+  const mailbox = {
+    id: "00000000-0000-4000-8000-000000000001",
+    name: "Default Gorelo mailbox",
+    address: "tickets@gorelo.example",
+    enabled: 1,
+    is_default: 1,
+    version: 1,
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  };
+  const db = {
+    prepare: vi.fn((sql: string) => {
+      const statement = {
+        bind: vi.fn(() => statement),
+        all: vi.fn(async () => ({
+          success: true,
+          results: sql.includes("FROM gorelo_mailboxes")
+            ? mailboxInitialized
+              ? [mailbox]
+              : []
+            : sql.includes("AS webhook_destination_host")
+              ? (options.webhookDestinationHosts ?? []).map((host) => ({
+                  webhook_destination_host: host,
+                }))
+              : [],
+          meta: {},
+        })),
+        first: vi.fn(async () => {
+          if (sql.includes("COUNT(*) AS count FROM gorelo_mailboxes")) {
+            return { count: mailboxInitialized ? 1 : 0 };
+          }
+          if (sql.includes("FROM gorelo_mailbox_settings")) {
+            return mailboxInitialized
+              ? {
+                  default_mailbox_id: mailbox.id,
+                  version: 1,
+                  updated_at: mailbox.updated_at,
+                }
+              : null;
+          }
+          if (sql.includes("FROM gorelo_mailboxes m")) {
+            return mailboxInitialized ? mailbox : null;
+          }
+          return sql.includes("AS direct_gorelo")
+            ? {
+                direct_gorelo: directGorelo,
+                webhooks,
+                webhook_client_resolution: sql.includes(
+                  "AS webhook_client_resolution",
+                )
+                  ? (options.webhookClientResolution ?? 0)
+                  : 0,
+                unavailable_webhook_destinations:
+                  options.unavailableWebhookDestinations ?? 0,
+                unavailable_fixed_clients: options.unavailableFixedClients ?? 0,
+              }
+            : sql.includes("COUNT(*) AS count")
+              ? { count: options.currentClients ?? 0 }
+              : null;
+        }),
+        run: vi.fn(async () => {
+          if (sql.includes("INSERT INTO gorelo_mailbox_settings")) {
+            mailboxInitialized = true;
+          }
+          return { success: true, meta: { changes: 1 } };
+        }),
+      };
+      return statement;
+    }),
+    batch: vi.fn(async (statements: D1PreparedStatement[]) =>
+      Promise.all(statements.map((statement) => statement.run())),
+    ),
+  };
+  return db as unknown as D1Database;
 }
 
 function environment(overrides: Partial<Env> = {}): Env {

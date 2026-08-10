@@ -25,7 +25,16 @@ import {
   recordEventWithPendingStructuredDelivery,
   recordEventWithPendingWebhookDelivery,
   updateEventProcessingOutcome,
+  type RecordEventOptions,
 } from "./repository";
+import { loadGoreloMailboxDirectory } from "./mailbox-repository";
+import {
+  claimMatchingParserCapture,
+  failParserCapture,
+  PARSER_CAPTURE_SAMPLE_RETENTION_MS,
+  type ParserCapture,
+} from "./parser-capture-repository";
+import { deleteParserSample, storeParserSample } from "./parser-sample";
 import { decide, decideWithoutMime } from "./rules";
 import { assessSpam } from "./spam";
 import type {
@@ -72,6 +81,44 @@ function logSafeError(error: unknown): string {
     /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,
     "[email]",
   );
+}
+
+function cloudflareCanForward(message: ForwardableEmailMessage): boolean {
+  return (
+    (
+      message as ForwardableEmailMessage & {
+        readonly canBeForwarded?: boolean;
+      }
+    ).canBeForwarded === true
+  );
+}
+
+interface PreparedParserCapture {
+  readonly objectKey: string;
+  readonly record: NonNullable<RecordEventOptions["parserCapture"]>;
+}
+
+function eventRecordOptions(
+  archived: ArchivedMessage | undefined,
+  capture: PreparedParserCapture | undefined,
+): RecordEventOptions {
+  return {
+    ...(archived ?? {}),
+    ...(capture ? { parserCapture: capture.record } : {}),
+  };
+}
+
+async function failClaimedParserCapture(
+  db: D1Database,
+  capture: ParserCapture,
+  eventId: string,
+  safeErrorCode: string,
+): Promise<void> {
+  await failParserCapture(db, capture.id, {
+    expectedVersion: capture.version,
+    claimEventId: eventId,
+    safeErrorCode,
+  }).catch(() => undefined);
 }
 
 function forwardingHeaders(
@@ -134,6 +181,14 @@ function eventFor(
       : {}),
     ...(decision.destination
       ? { destination: decision.destination.slice(0, 320) }
+      : {}),
+    ...(decision.destinationMailboxId
+      ? { destinationMailboxId: decision.destinationMailboxId }
+      : {}),
+    ...(decision.destinationMailboxName
+      ? {
+          destinationMailboxName: decision.destinationMailboxName.slice(0, 120),
+        }
       : {}),
     status,
     ...(options.error ? { error: options.error } : {}),
@@ -301,6 +356,7 @@ async function handleDirectGoreloAction(
   receivedAt: string,
   trace: AuditTraceStep[],
   archived: ArchivedMessage,
+  parserCapture?: PreparedParserCapture,
 ): Promise<void> {
   const goreloAction = decision.gorelo?.action;
   if (!goreloAction) throw new Error("Gorelo action decision is incomplete");
@@ -350,7 +406,7 @@ async function handleDirectGoreloAction(
           ? { ruleSnapshotId: decision.matchedRuleSnapshotId }
           : {}),
       },
-      archived,
+      eventRecordOptions(archived, parserCapture),
     );
   } catch (error) {
     await deleteArchivedMessage(env.MESSAGE_ARCHIVE, archived.objectKey).catch(
@@ -497,6 +553,7 @@ async function handleProcessingFailure(
   receivedAt: string,
   trace: AuditTraceStep[],
   archived: ArchivedMessage | undefined,
+  parserCapture: PreparedParserCapture | undefined,
   eventRecorded: boolean,
   error: unknown,
 ): Promise<void> {
@@ -546,13 +603,21 @@ async function handleProcessingFailure(
       error: storedError,
     });
     try {
-      await recordEvent(env.DB, event, archived);
+      await recordEvent(
+        env.DB,
+        event,
+        eventRecordOptions(archived, parserCapture),
+      );
       failureEventRecorded = true;
       return true;
     } catch (recordError) {
       await deleteArchivedMessage(
         env.MESSAGE_ARCHIVE,
         archived?.objectKey,
+      ).catch(() => undefined);
+      await deleteParserSample(
+        env.MESSAGE_ARCHIVE,
+        parserCapture?.objectKey,
       ).catch(() => undefined);
       console.error("Unable to record failed processing event", {
         eventId,
@@ -660,6 +725,8 @@ export async function handleEmail(
   let decision: Decision | undefined;
   let raw: ArrayBuffer | undefined;
   let archived: ArchivedMessage | undefined;
+  let claimedParserCapture: ParserCapture | undefined;
+  let preparedParserCapture: PreparedParserCapture | undefined;
   let eventRecorded = false;
 
   try {
@@ -670,9 +737,20 @@ export async function handleEmail(
         "Internal quarantine requires the MESSAGE_ARCHIVE R2 binding",
       );
     }
-    const rules = await listRules(env.DB);
+    const [rules, mailboxDirectory] = await Promise.all([
+      listRules(env.DB),
+      loadGoreloMailboxDirectory(env.DB, {
+        allowedAddresses: config.allowedForwardDestinations,
+        bootstrapAddress: config.defaultGoreloAddress,
+      }),
+    ]);
     let spam = assessSpam(facts, config);
-    decision = decideWithoutMime({ ...facts, spam }, rules, config);
+    decision = decideWithoutMime(
+      { ...facts, spam },
+      rules,
+      config,
+      mailboxDirectory,
+    );
     if (!decision) {
       if (message.rawSize > config.maxParseBytes) {
         throw new Error(
@@ -682,7 +760,137 @@ export async function handleEmail(
       raw = await readRawMessage(message);
       facts = await extractEmailFacts(message, rules, config, raw);
       spam = assessSpam(facts, config);
-      decision = decide({ ...facts, spam }, rules, config);
+      decision = decide({ ...facts, spam }, rules, config, mailboxDirectory);
+    }
+
+    // A one-time teaching request is observational, but it must not be
+    // consumed by mail the policy has classified as spam or unsafe to route.
+    // Matching still uses envelope facts, so the dashboard defaults to the
+    // narrowest practical sender mode and operators should keep the window
+    // short.
+    if (
+      env.MESSAGE_ARCHIVE &&
+      cloudflareCanForward(message) &&
+      !spam.isSpam &&
+      decision.type === "forward" &&
+      message.rawSize <= config.maxParseBytes
+    ) {
+      try {
+        const claim = await claimMatchingParserCapture(
+          env.DB,
+          {
+            eventId,
+            envelopeFrom: facts.envelopeFrom,
+            envelopeTo: facts.envelopeTo,
+            subject: facts.subject,
+          },
+          receivedAt,
+        );
+        if (claim.status === "claimed") {
+          claimedParserCapture = claim.capture;
+          trace.push({
+            stage: "parser sample",
+            outcome: "info",
+            detail:
+              "A Cloudflare-forwardable, non-spam message matched an active one-time parser teaching capture",
+            at: new Date().toISOString(),
+          });
+        }
+      } catch {
+        trace.push({
+          stage: "parser sample",
+          outcome: "warning",
+          detail:
+            "Parser sample matching was unavailable; normal routing continued",
+          at: new Date().toISOString(),
+        });
+      }
+    }
+
+    let parserSampleFacts: EmailFacts | undefined;
+    if (claimedParserCapture) {
+      if (facts.mimeParsed) {
+        parserSampleFacts = facts;
+      } else {
+        try {
+          raw ??= await readRawMessage(message);
+          parserSampleFacts = await extractEmailFacts(
+            message,
+            rules,
+            config,
+            raw,
+            true,
+          );
+        } catch {
+          await failClaimedParserCapture(
+            env.DB,
+            claimedParserCapture,
+            eventId,
+            "mime_parse_failed",
+          );
+          claimedParserCapture = undefined;
+          trace.push({
+            stage: "parser sample",
+            outcome: "warning",
+            detail:
+              "The teaching sample could not be parsed; normal routing continued",
+            at: new Date().toISOString(),
+          });
+        }
+      }
+    }
+
+    if (claimedParserCapture && parserSampleFacts && env.MESSAGE_ARCHIVE) {
+      try {
+        const capturedAt = new Date().toISOString();
+        const stored = await storeParserSample(
+          env.MESSAGE_ARCHIVE,
+          eventId,
+          parserSampleFacts,
+          capturedAt,
+          parserSampleFacts.bodyText.length >= config.maxBodyCharacters,
+        );
+        preparedParserCapture = {
+          objectKey: stored.objectKey,
+          record: {
+            id: claimedParserCapture.id,
+            input: {
+              expectedVersion: claimedParserCapture.version,
+              claimEventId: eventId,
+              capturedEventId: eventId,
+              objectKey: stored.objectKey,
+              sha256: stored.sha256,
+              size: stored.size,
+              capturedAt,
+              sampleExpiresAt: new Date(
+                Date.parse(capturedAt) + PARSER_CAPTURE_SAMPLE_RETENTION_MS,
+              ).toISOString(),
+            },
+          },
+        };
+        trace.push({
+          stage: "parser sample",
+          outcome: "success",
+          detail:
+            "A normalized plain-text teaching sample was retained temporarily",
+          at: capturedAt,
+        });
+      } catch {
+        await failClaimedParserCapture(
+          env.DB,
+          claimedParserCapture,
+          eventId,
+          "sample_storage_failed",
+        );
+        claimedParserCapture = undefined;
+        trace.push({
+          stage: "parser sample",
+          outcome: "warning",
+          detail:
+            "The teaching sample could not be retained; normal routing continued",
+          at: new Date().toISOString(),
+        });
+      }
     }
 
     trace.push({
@@ -796,13 +1004,22 @@ export async function handleEmail(
         quarantine: quarantine!,
       });
       try {
-        await recordEvent(env.DB, event, archived);
+        await recordEvent(
+          env.DB,
+          event,
+          eventRecordOptions(archived, preparedParserCapture),
+        );
         eventRecorded = true;
       } catch (recordError) {
         await deleteArchivedMessage(
           env.MESSAGE_ARCHIVE,
           archived.objectKey,
         ).catch(() => undefined);
+        await deleteParserSample(
+          env.MESSAGE_ARCHIVE,
+          preparedParserCapture?.objectKey,
+        ).catch(() => undefined);
+        preparedParserCapture = undefined;
         archived = undefined;
         throw recordError;
       }
@@ -825,7 +1042,9 @@ export async function handleEmail(
         receivedAt,
         trace,
         archived,
+        preparedParserCapture,
       );
+      eventRecorded = true;
       return;
     }
 
@@ -885,10 +1104,14 @@ export async function handleEmail(
                 ? { ruleSnapshotId: decision.matchedRuleSnapshotId }
                 : {}),
             },
-            archived,
+            eventRecordOptions(archived, preparedParserCapture),
           );
         } else {
-          await recordEvent(env.DB, pendingEvent, archived);
+          await recordEvent(
+            env.DB,
+            pendingEvent,
+            eventRecordOptions(archived, preparedParserCapture),
+          );
         }
         eventRecorded = true;
         try {
@@ -943,7 +1166,7 @@ export async function handleEmail(
             config,
             trace,
           }),
-          archived,
+          eventRecordOptions(archived, preparedParserCapture),
         );
         eventRecorded = true;
         return;
@@ -963,7 +1186,7 @@ export async function handleEmail(
             config,
             trace,
           }),
-          archived,
+          eventRecordOptions(archived, preparedParserCapture),
         );
         eventRecorded = true;
         message.setReject(cleanSmtpReason(decision.reason));
@@ -971,6 +1194,28 @@ export async function handleEmail(
       }
     }
   } catch (error) {
+    if (!eventRecorded && preparedParserCapture) {
+      await deleteParserSample(
+        env.MESSAGE_ARCHIVE,
+        preparedParserCapture.objectKey,
+      ).catch(() => undefined);
+      if (claimedParserCapture) {
+        await failClaimedParserCapture(
+          env.DB,
+          claimedParserCapture,
+          eventId,
+          "event_commit_failed",
+        );
+      }
+      preparedParserCapture = undefined;
+    } else if (!eventRecorded && claimedParserCapture) {
+      await failClaimedParserCapture(
+        env.DB,
+        claimedParserCapture,
+        eventId,
+        "processing_failed",
+      );
+    }
     await handleProcessingFailure(
       message,
       env,
@@ -981,6 +1226,7 @@ export async function handleEmail(
       receivedAt,
       trace,
       archived,
+      preparedParserCapture,
       eventRecorded,
       error,
     );

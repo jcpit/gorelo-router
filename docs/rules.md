@@ -4,7 +4,9 @@ Rules are evaluated by ascending `priority`; `0` runs before `10`, which runs be
 
 There is one deliberate exception: when a matching action is `forward`, `forward_webhook`, `create_ticket`, or `create_alert`, the message is locally classified as spam, and global `SPAM_ACTION` is not `forward`, the global spam action overrides that route. Set `"bypassSpam": true` only when an explicit rule should bypass spam policy.
 
-If no rule matches, the global spam action runs for messages at or above `SPAM_THRESHOLD`; all other messages use `DEFAULT_GORELO_ADDRESS`.
+If no rule matches, the global spam action runs for messages at or above
+`SPAM_THRESHOLD`; all other messages use the mailbox currently marked as the
+persistent default.
 
 ## Shape
 
@@ -25,7 +27,7 @@ If no rule matches, the global spam action runs for messages at or above `SPAM_T
   ],
   "action": {
     "type": "forward",
-    "destination": "vendor-alerts@gorelo.example.com",
+    "mailboxId": "replace-with-a-named-mailbox-id",
     "bypassSpam": false
   }
 }
@@ -79,8 +81,14 @@ Wildcards are not regular expressions; the implementation uses a bounded bitset 
 
 ## Actions
 
-- `{"type":"forward"}` routes to `DEFAULT_GORELO_ADDRESS` and respects a non-forward spam policy.
-- `{"type":"forward","destination":"..."}` selects another allow-listed, Cloudflare-verified Gorelo route.
+- `{"type":"forward"}` is the intentional default-following form. It resolves the
+  current default named mailbox and respects a non-forward spam policy.
+- `{"type":"forward","mailboxId":"..."}` pins the rule to a registered
+  named Gorelo mailbox by stable ID.
+- `{"type":"forward","destination":"..."}` remains supported for legacy
+  rules and selects an allow-listed, Cloudflare-verified literal address. The
+  guided editor offers either default-following behavior or a pinned
+  `mailboxId`; it does not create new literal destinations.
 - `{"type":"forward","bypassSpam":true}` explicitly bypasses global spam handling after that rule matches.
 - `{"type":"forward_webhook",...}` keeps the same primary email forward, but first atomically stores the event and pending delivery snapshot. After Cloudflare accepts the forward, it asynchronously sends a signed, idempotent webhook containing explicitly mapped variables. It never turns the webhook URL or signing secret into rule data.
 - `{"type":"create_ticket",...}` creates one structured Gorelo ticket through `POST /v1/tickets`. It is API-only and does not forward the original email.
@@ -93,6 +101,26 @@ Wildcards are not regular expressions; the implementation uses a bounded bitset 
 Mailbox quarantine is not an in-app hold: the review mailbox owns disposition and release. `ARCHIVE_MODE=quarantine` or `all` may retain an audit copy, but only internal quarantine items are actionable in the dashboard. Internal release requires an allow-listed Gorelo destination selected by an authenticated operator.
 
 Forwarding remains the normal choice when Gorelo should receive the original sender, MIME structure, and attachments. API-only actions send a bounded structured JSON request instead. They require `GORELO_API_KEY`, private `MESSAGE_ARCHIVE`, and an imported current client directory. Gorelo's [API overview](https://help.gorelo.io/api-overview) documents scoped `X-API-Key` authentication and links the regional [Australia](https://api.aue.gorelo.io/swagger) and [US](https://api.usw.gorelo.io/swagger) Swagger references.
+
+### Named Gorelo mailboxes
+
+**Setup → Gorelo mailboxes** gives forwarding addresses operator-friendly names
+and maintains exactly one persistent default. `DEFAULT_GORELO_ADDRESS` creates
+the initial mailbox/default only when the registry is empty. Once initialized,
+changing that deployment variable never silently rewrites the registry or
+changes the selected default.
+
+The guided editor makes the choice explicit: follow the current default by
+omitting both destination fields, or pin the rule to one stable `mailboxId`.
+Changing the default affects unmatched mail and default-following rules; it
+does not change a pinned rule. Renaming a mailbox also preserves the reference.
+A disabled, missing, or no-longer-allow-listed mailbox cannot be routed to and
+must be corrected before its rules are enabled.
+
+The registry is not an escape hatch around deployment controls. Every mailbox
+address and every legacy literal `destination` must appear in
+`ALLOWED_FORWARD_DESTINATIONS` and be independently verified by Cloudflare.
+`mailboxId` and `destination` are mutually exclusive on the same action.
 
 ### Webhook extraction fields
 
@@ -150,6 +178,35 @@ The structured endpoints cannot receive raw MIME or attachments. The rule's prim
 
 Gorelo does not advertise an idempotency key for these create endpoints. Each delivery gets at most one provider attempt. Extraction/mapping failures and definitive 4xx responses are terminal `failed`; `429` is also terminal. These definitive failures use the configured failure destination or reject if none exists. A timeout, network error, 5xx, invalid/oversized response, or abandoned claim is `uncertain` because Gorelo might already have created the record. Neither failed nor uncertain structured actions are automatically replayed, and an uncertain action is never fallback-forwarded. Check Gorelo and the retained audit before taking manual action.
 
+### Teach from an audited message
+
+For a `forward_webhook`, `create_ticket`, or `create_alert` action, expand a
+representative item in **Audit** and select **Create rule from this email**.
+Choose the action and any named mailbox, then review the generated disabled
+draft. Nothing is routed by that draft until an operator deliberately saves and
+enables it.
+
+Select the changing text in From, To, Subject, or the normalized plain-text
+body and assign a safe variable key. The inference engine creates bounded
+literal `startAfter`/`endBefore` markers and verifies that they reproduce the
+selected value. Only those field definitions are stored with the rule. The
+trainer never renders or exposes HTML, attachments, raw MIME, or archive object
+identifiers.
+
+If the audited event has no usable body, **Capture next** creates an opt-in,
+narrow request for the first message matching the exact recipient and the
+optional exact sender address/domain and literal subject filter. The dashboard
+defaults to a 15-minute wait; the API accepts 5 to 60 minutes. Normal routing
+continues unchanged while it is active. A match produces a bounded normalized
+plain-text sample in private R2 for no more than 60 minutes. It contains no
+HTML, attachments, or raw RFC 5322 message.
+Cancellation, expiry, and non-matching mail produce no teaching sample.
+The dashboard defaults to the exact prior envelope sender. The Worker also
+requires Cloudflare's `canBeForwarded` signal; spam-classified, drop, reject,
+quarantine, and oversize messages cannot consume the capture. Envelope matching
+is not DMARC identity alignment, so retain the short window and use exact sender
+plus a subject filter when practical.
+
 ## Examples
 
 ### Forward an alert and send mapped variables
@@ -167,6 +224,7 @@ Gorelo does not advertise an idempotency key for these create endpoints. Each de
   ],
   "action": {
     "type": "forward_webhook",
+    "mailboxId": "replace-with-a-named-mailbox-id",
     "webhookDestinationId": "replace-with-a-registered-destination-id",
     "eventType": "mail.alert.parsed",
     "clientIdentityField": "client",
@@ -364,7 +422,7 @@ This checks decoded filenames only; it is not malware detection.
   ],
   "action": {
     "type": "forward",
-    "destination": "contoso-alerts@gorelo.example.com"
+    "mailboxId": "replace-with-contoso-mailbox-id"
   }
 }
 ```

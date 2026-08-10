@@ -43,9 +43,9 @@ fields.
 | Control Gorelo ticket or alert fields         | `create_ticket` or `create_alert`            | The original email is not forwarded; private R2 retention is mandatory. |
 | Silently discard or reject at SMTP            | `drop` or `reject`                           | Use only for high-confidence policy decisions.                          |
 
-If no enabled rule matches, the Worker forwards to
-`DEFAULT_GORELO_ADDRESS`, subject to the global spam policy. Rules are
-evaluated from the lowest priority number upward, and the first match wins.
+If no enabled rule matches, the Worker forwards to the mailbox currently marked
+as the default, subject to the global spam policy. Rules are evaluated from the
+lowest priority number upward, and the first match wins.
 
 ## 2. Prerequisites
 
@@ -121,9 +121,9 @@ Open <http://localhost:8787/admin>, paste the local admin token, and select
 **Connect securely**. The token remains in page memory and is not written to
 browser storage.
 
-Compose initializes the single local D1 baseline. Local D1, R2, and simulated
-Email Sending state persists in the named Docker volume across image rebuilds
-and ordinary `docker compose down` operations.
+Compose applies every pending local D1 migration in order. Local D1, R2, and
+simulated Email Sending state persists in the named Docker volume across image
+rebuilds and ordinary `docker compose down` operations.
 
 If port 8787 is in use:
 
@@ -184,9 +184,17 @@ addresses when different sources need different Gorelo-side group, client, tag,
 or user metadata. Record the addresses in your password manager or deployment
 runbook; addresses are configuration, not API secrets.
 
-Use one address as `DEFAULT_GORELO_ADDRESS`. Every non-default forwarding or
-review destination used by a rule must also be listed in
-`ALLOWED_FORWARD_DESTINATIONS` and independently verified in Cloudflare.
+Choose the address that should become the first default and put it in
+`DEFAULT_GORELO_ADDRESS`. On first initialization, Gorelo Router creates a
+persistent named mailbox for that address and marks it as the registry default.
+After that bootstrap, use **Setup → Gorelo mailboxes** to add names and choose
+the default. A later `DEFAULT_GORELO_ADDRESS` change never silently rewrites an
+existing mailbox or changes the persisted default.
+
+List every Gorelo and review address that may receive a forward in
+`ALLOWED_FORWARD_DESTINATIONS`, including the bootstrap default. Each address
+must also be independently verified as a Cloudflare Email Routing destination.
+The registry does not bypass either control.
 
 ### 4.2 Create an API key only if needed
 
@@ -280,17 +288,20 @@ all-zero scaffold value. Keep the binding name `DB`; the application depends on
 that name. Keep the R2 bucket private and retain the `MESSAGE_ARCHIVE` binding
 name; raw email does not need a public or custom bucket domain.
 
-Add an R2 lifecycle rule as a secondary safety net for orphaned raw messages.
-Set it slightly longer than `EVENT_RETENTION_DAYS`. For the scaffold's 30-day
-retention:
+Add prefix-scoped R2 lifecycle rules as secondary safety nets. Keep raw
+`messages/` slightly longer than `EVENT_RETENTION_DAYS`; expire orphaned
+`parser-samples/` after one day. For the scaffold's 30-day retention:
 
 ```bash
 docker compose run --rm cloudflare r2 bucket lifecycle add \
   mail-parser-quarantine audit-retention messages/ --expire-days 31
+
+docker compose run --rm cloudflare r2 bucket lifecycle add \
+  mail-parser-quarantine parser-sample-backstop parser-samples/ --expire-days 1
 ```
 
-The Worker's daily cleanup remains the primary deletion path because it removes
-R2 content before its D1 pointer. Cloudflare lifecycle deletion may lag.
+The Worker's daily audit cleanup and five-minute parser-sample sweep remain the
+primary deletion paths. Cloudflare lifecycle deletion may lag.
 
 ## 6. Configure the Worker
 
@@ -325,7 +336,10 @@ quarantine posture:
 }
 ```
 
-The copied scaffold explicitly selects `internal` quarantine. If
+`DEFAULT_GORELO_ADDRESS` bootstraps the initial named registry mailbox only.
+Once that mailbox registry exists, changing this variable does not resynchronize
+the stored address or current default; make those changes deliberately in
+Setup. The copied scaffold explicitly selects `internal` quarantine. If
 `QUARANTINE_MODE` is omitted entirely, the runtime fallback is `mailbox`.
 Configure the value deliberately rather than relying on that fallback.
 
@@ -367,8 +381,8 @@ instructions.
 
 | Setting                        | Purpose and valid posture                                                                                                                                                                                                      |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DEFAULT_GORELO_ADDRESS`       | Required normal forwarding destination.                                                                                                                                                                                        |
-| `ALLOWED_FORWARD_DESTINATIONS` | Comma-separated destinations that rules or release may use. The default, failure, and quarantine addresses are also added by the runtime, but listing the complete intended set makes policy explicit.                         |
+| `DEFAULT_GORELO_ADDRESS`       | Required bootstrap address used to create the first persistent named mailbox and initial default. It is not silently resynchronized after the registry exists.                                                                 |
+| `ALLOWED_FORWARD_DESTINATIONS` | Comma-separated destinations that named mailboxes, legacy rules, quarantine, failure routing, or release may use. Every address must also be independently verified by Cloudflare.                                             |
 | `QUARANTINE_MODE`              | `internal` for an R2-backed hold, or `mailbox` for immediate forwarding to a review mailbox.                                                                                                                                   |
 | `ARCHIVE_MODE`                 | `none`, `quarantine`, or `all`. Internal holds and API-only Gorelo actions are always retained regardless of this value.                                                                                                       |
 | `QUARANTINE_ADDRESS`           | Review mailbox for mailbox mode. It is required when mailbox mode uses `SPAM_ACTION=quarantine`, unless only explicit rule destinations are used while the global spam action is different.                                    |
@@ -449,14 +463,15 @@ make it safe again.
 ## 8. Verify Cloudflare forwarding destinations
 
 In Cloudflare, open **Compute → Email Service → Email Routing → Destination
-Addresses**. Add and complete verification for every Gorelo and review mailbox
-the Worker may pass to `message.forward()`.
+Addresses**. Add and complete verification for every Gorelo named mailbox,
+legacy rule destination, and review address the Worker may pass to
+`message.forward()`.
 
 There are two independent controls:
 
 1. Gorelo Router checks the address against
-   `ALLOWED_FORWARD_DESTINATIONS` (including the configured default/failure
-   addresses).
+   `ALLOWED_FORWARD_DESTINATIONS`, whether it came from a named mailbox, a
+   legacy rule, or the configured quarantine/failure route.
 2. Cloudflare permits forwarding only to its verified destination addresses.
 
 Both must allow an address. A destination override that passes one control but
@@ -504,17 +519,19 @@ runs formatting, type, test, and Worker build checks; then inspects only the
 names of the target Worker's configured secrets. Inspection failures stop
 before D1 changes. A new Worker or confirmed missing admin secret causes the
 container to generate `openssl rand -base64 48`; an existing secret is
-preserved. Only after those checks pass does it initialize the empty D1 database
-from the single `0001_initial.sql` baseline. It derives an ephemeral core config
-that leaves HTTP, schedule, and email trigger reconciliation for the second
-phase; deploys the matching code and any new token as one active Worker version;
-verifies Wrangler recorded a real version ID; then reconciles every trigger
-from the full production config. Existing triggers remain attached while an
-upgrade's core version is activated. The mode-`0600` token file lives only on
-the ephemeral container's memory-backed `/tmp` and is deleted immediately after
-confirmed core activation. This avoids the temporary public dummy Worker that
-first-run `secret put` can otherwise create. There is no historical upgrade
-chain in this first release. Optional integration readiness is checked after
+preserved. Only after those checks pass does it apply every pending additive D1
+migration in order. The same Docker command initializes a new database or
+upgrades an existing one, and D1 records which migrations have already been
+applied. It then derives an ephemeral core config that leaves HTTP, schedule,
+and email trigger reconciliation for the second phase; deploys the matching
+code and any new token as one active Worker version; verifies Wrangler recorded
+a real version ID; then reconciles every trigger from the full production
+config. Existing triggers remain attached while an upgrade's core version is
+activated. The mode-`0600` token file lives only on the ephemeral container's
+memory-backed `/tmp` and is deleted immediately after confirmed core
+activation. This avoids the temporary public dummy Worker that first-run
+`secret put` can otherwise create. Schema changes are additive; there is no
+automatic downgrade. Optional integration readiness is checked after
 authentication in Setup.
 
 The generated token is displayed after confirmed core activation but before
@@ -564,7 +581,8 @@ and
 document the Worker action, API shape, dashboard flow, and DNS requirements.
 
 Create recipient-specific policies inside Gorelo Router. A message that matches
-no application rule follows the configured default action and destination. A
+no application rule follows the configured global spam action and, on the
+normal forward path, the mailbox currently marked as default. A
 catch-all increases the exposed recipient surface, so use a dedicated ingestion
 subdomain when the main domain has unrelated mail, keep spam/quarantine and
 failure routing configured, and independently authenticate trusted upstreams;
@@ -589,8 +607,32 @@ Enter `ADMIN_API_TOKEN` and select **Connect securely**. In **Setup**:
 3. If the Gorelo key includes every broad diagnostic read scope listed in
    section 4.2, select **Test connection**. With a narrower key, verify only the
    imports, selectors, and actions it is intended to support.
-4. Re-run readiness after enabling rules or changing bindings, imports, or
-   webhook destinations.
+4. Re-run readiness after enabling rules or changing bindings, mailboxes,
+   imports, or webhook destinations.
+
+### Configure named Gorelo mailboxes
+
+The first Setup load initializes one persistent mailbox named **Default Gorelo
+mailbox** from `DEFAULT_GORELO_ADDRESS`. This is a one-time bootstrap, not a
+continuous environment-variable sync.
+
+1. Open **Setup → Gorelo mailboxes**.
+2. Rename it to an operator-friendly label such as `Service Desk`.
+3. Add each additional Gorelo forwarding address with a unique name. The
+   address must already be present in `ALLOWED_FORWARD_DESTINATIONS` and
+   verified in Cloudflare; otherwise it is unavailable for routing.
+4. Mark exactly one enabled, allow-listed mailbox as the default. The previous
+   default remains registered but is no longer used for unmatched mail.
+5. Select a named mailbox for every new guided rule. The rule stores that
+   mailbox's stable ID, even when the selected mailbox is currently the
+   default.
+
+Changing the default affects unmatched mail and legacy default routes that have
+neither a `mailboxId` nor a literal `destination`. It does not repoint rules
+pinned to a mailbox ID. Renaming a mailbox also leaves pinned rules intact.
+Existing Advanced JSON rules that use a literal `destination` remain supported,
+but new guided rules use named mailboxes. A mailbox referenced by rules cannot
+be silently removed or made unroutable; resolve those rule references first.
 
 Readiness validates the migrated D1 schema and only requires optional
 integrations used by enabled rules. It also checks the selected quarantine and
@@ -615,7 +657,8 @@ ordering without changing the destination.
 5. Add a `to_local_part` condition with `equals` and the placeholder value
    `alerts+vendor`.
 6. Choose **Forward to Gorelo**.
-7. Leave **Destination override** blank to use `DEFAULT_GORELO_ADDRESS`.
+7. Select the intended named **Gorelo mailbox**. Selecting the mailbox currently
+   marked default still pins this rule to its stable ID.
 8. Leave spam bypass off.
 9. Save, then use **Dry run** with the same recipient local part and confirm the
    rule name, forward action, destination, spam score, and decision reason.
@@ -637,13 +680,16 @@ The equivalent Advanced JSON is:
     }
   ],
   "action": {
-    "type": "forward"
+    "type": "forward",
+    "mailboxId": "replace-with-selected-mailbox-id"
   }
 }
 ```
 
-Rules take effect on the next inbound message. A specific `destination` may be
-used only after it is allow-listed and Cloudflare-verified. See
+Rules take effect on the next inbound message. The guided editor can follow the
+current default by omitting both destination fields or pin a stable mailbox ID.
+A legacy literal `destination` remains supported only when the address is both
+allow-listed and Cloudflare-verified. See
 [rules.md](rules.md) for every field, operator, action, and example.
 
 ## 13. Teach fields from a sample
@@ -651,10 +697,19 @@ used only after it is allow-listed and Cloudflare-verified. See
 The sample trainer is available for `forward_webhook`, `create_ticket`, and
 `create_alert` actions.
 
-1. Start or edit a structured rule and select the intended action.
-2. Select **Teach from sample**.
-3. Paste one representative email, or load the current Dry-run sample.
-4. Highlight a changing value in From, To, Subject, or the plain-text body.
+The preferred path begins with a real retained message:
+
+1. Open **Audit**, expand a representative email, and select **Create rule from
+   this email**.
+2. Choose Forward email, Forward + webhook, Create Gorelo ticket, or Create
+   Gorelo alert. Forwarding choices also ask whether to follow the default or
+   pin a named Gorelo mailbox. Plain forwarding creates a routing draft without
+   extraction; choose one of the other three outcomes to teach variables.
+3. Review the conservatively prefilled conditions. The generated rule is a
+   disabled draft; it cannot affect live mail until it is deliberately saved
+   and enabled.
+4. In the trainer, highlight a changing value in From, To, Subject, or the
+   normalized plain-text body.
 5. Assign a safe key such as `customer`, `device`, `summary`, or `details`.
 6. Confirm the inferred literal markers extract exactly the highlighted value.
 7. Repeat for other values, then apply the variables.
@@ -662,17 +717,46 @@ The sample trainer is available for `forward_webhook`, `create_ticket`, and
    map the variables into the webhook action.
 9. Dry-run several representative messages before saving or enabling the rule.
 
+You can still start in Rules and use **Teach from sample** with pasted content
+or the current Dry-run sample.
+
 The trainer uses bounded literal text around the selection. It does not execute
 regular expressions or templates, retain a semantic model, adapt automatically,
 or learn several layouts. If a vendor has two simultaneous layouts, use two
 narrowly conditioned rules in explicit priority order.
 
-The sample exists in page memory and is posted only to the authenticated
-inference endpoint. Inference does not write D1/R2 or call Gorelo or a webhook.
-The raw sample is not saved with the rule, but the inferred markers can contain
-adjacent static text. Do not train on credentials or unnecessary personal data.
-When retraining, reuse existing variable names where downstream mappings depend
-on them and dry-run both current and transition layouts.
+An Audit sample exposes only normalized plain text to the trainer. HTML,
+attachments, raw RFC 5322 content, archive keys, and active embedded content are
+never exposed through this workflow. The sample is not saved with the rule;
+only inferred markers and variable names are applied. Inference does not call
+Gorelo or a webhook. The inferred markers can contain adjacent static text, so
+do not train on credentials or unnecessary personal data. When retraining,
+reuse existing variable names where downstream mappings depend on them and
+dry-run both current and transition layouts.
+
+### Capture the next matching message
+
+An older Audit item may have sender, recipient, and subject metadata but no
+usable body. Select **Capture next** only when a new representative message can
+be sent safely.
+
+1. Confirm the exact inbound recipient. Optionally narrow the request with the
+   offered exact sender address or sender domain and a literal subject filter.
+2. Start the capture. The opt-in wait lasts 15 minutes and captures only the
+   first inbound message satisfying those criteria.
+3. Send or wait for the representative message. Gorelo Router continues its
+   normal policy evaluation, forwarding, ticket/alert action, webhook, and
+   Audit recording; teaching does not hold, reroute, or duplicate the email.
+4. When the sample is ready, return to the trainer, select the values, and
+   create the disabled rule draft.
+
+Capture matching is deliberately narrow and never becomes a catch-all content
+recorder. A pending request can be cancelled and expires without a match after
+15 minutes. For a match, the Router extracts a bounded normalized plain-text
+sample into private R2 and makes it available for at most 60 minutes. The
+temporary teaching object contains no HTML, attachments, or raw MIME and is
+separate from any raw-message archive required by quarantine or API-only
+actions. After expiry it cannot be used for training.
 
 ## 14. Import Gorelo clients and configure aliases
 
@@ -889,9 +973,11 @@ not place bearer tokens in shell history or URLs.
   credential policy. Coordinate signing-key changes with webhook receivers.
 - Review `EVENT_RETENTION_DAYS` and the slightly longer R2 lifecycle against
   client agreements, privacy obligations, and storage requirements.
-- The scheduled Worker handles webhook retries with `*/5 * * * *` and retention
-  cleanup with `17 3 * * *`, as defined in `wrangler.production.jsonc`. Confirm Cloudflare's
-  current cron timezone semantics and scheduled-trigger health after deployment.
+- The `*/5 * * * *` trigger handles webhook retries, pending Gorelo deliveries,
+  and parser-capture recovery/expiry/cleanup. The `17 3 * * *` trigger handles
+  audit retention, as defined in `wrangler.production.jsonc`. Confirm
+  Cloudflare's current cron timezone semantics and scheduled-trigger health
+  after deployment.
 - Use a specialist email-security layer for malware, phishing, BEC, URL
   reputation, and attachment-content inspection. Gorelo Router checks
   attachment filenames and bounded text only.
@@ -903,9 +989,9 @@ Before upgrading, review the upstream changes and back up the ignored
 Secrets remain in Cloudflare and should not be copied into the repository.
 
 First confirm a tested D1/R2 recovery path appropriate to your account and
-retention requirements. This repository has no automatic database downgrade,
-and a future release may include schema changes. Pull the reviewed release and
-use the same guarded Docker deployment path:
+retention requirements. The repository uses ordered, additive D1 migrations
+and has no automatic database downgrade. Pull the reviewed release and use the
+same guarded Docker deployment path:
 
 ```bash
 git status --short
@@ -926,10 +1012,11 @@ triggers, compatibility settings, or security keys while preserving the private
 account/D1 IDs, Custom Domain, allowlists, and routing settings. Complete this
 review before running `deploy`.
 
-The deployment container applies any future schema files before the code that
-expects them. After the deploy, refresh Setup readiness, run a Dry run, send a
-controlled live message, and inspect Audit. For this first release, the only
-schema file is the fresh `0001_initial.sql` baseline.
+The deployment container automatically applies every pending migration before
+the code that expects it. D1 records completed migrations, so rerunning the same
+deployment is safe and does not reapply them. After the deploy, refresh Setup
+readiness, confirm the named mailbox/default state, run a Dry run, send a
+controlled live message, and inspect Audit.
 
 After updating the source, rebuild the local Docker environment:
 
@@ -961,7 +1048,10 @@ Use `--no-update-config` on future resource creation commands.
 | First deployment requires an interactive terminal           | Do not use `-T`, redirect output, or run first-time generation unattended. Run the Compose deployment interactively, confirm generation, and save the displayed token immediately.                                                                                                                                                                                                                                                                                              |
 | `/admin` rejects the token                                  | Confirm the token belongs to this deployed Worker and was not copied with whitespace. Rotate it if its handling is uncertain.                                                                                                                                                                                                                                                                                                                                                   |
 | `/healthz` works but readiness fails                        | `/healthz` is only Router-unauthenticated liveness/configuration and should still sit behind Access. Open authenticated Setup or `/api/v1/readiness`, then fix the named schema, binding, release, client, or webhook check.                                                                                                                                                                                                                                                    |
-| D1 schema is missing                                        | Confirm the intended account and D1 ID, then rerun `docker compose run --rm --build deploy`; it initializes the baseline before deploying.                                                                                                                                                                                                                                                                                                                                      |
+| D1 schema is missing or behind                              | Confirm the intended account and D1 ID, then rerun `docker compose run --rm --build deploy`; it automatically applies every pending additive migration before deploying.                                                                                                                                                                                                                                                                                                        |
+| A named mailbox is unavailable                              | Confirm it is enabled, its address remains in `ALLOWED_FORWARD_DESTINATIONS`, and the same address is verified in Cloudflare. Changing `DEFAULT_GORELO_ADDRESS` does not repair or rewrite an existing registry; use Setup.                                                                                                                                                                                                                                                     |
+| Mail followed the wrong default                             | Check **Setup → Gorelo mailboxes**. Changing the persistent default affects unmatched mail and legacy default routes without a mailbox ID or literal destination, but not pinned rules.                                                                                                                                                                                                                                                                                         |
+| Capture next did not collect a body                         | Confirm the 15-minute request is still pending and the message exactly satisfies its recipient and optional sender/subject filters. Normal routing continues even when capture does not match. Start a new narrow request after expiry.                                                                                                                                                                                                                                         |
 | Mail never reaches the Worker                               | Confirm `addresses` names the onboarded hostname, MX is active, and `rules list` reports an enabled `worker:gorelo-router` catch-all. Rerun the interactive deployment and approve the verified takeover; Wrangler 4.120's catch-all `rules update` is broken. Explicit recipient rules bypass the Router, so remove or repoint unintended exceptions. Check an unfiltered Worker tail.                                                                                         |
 | A forward destination is rejected                           | The address must be valid, application allow-listed, and verified as a Cloudflare Email Routing destination. Check both controls.                                                                                                                                                                                                                                                                                                                                               |
 | Message processing fails instead of using the default route | This is intentional fail-closed behavior. Inspect Audit and the configured `FAILURE_FORWARD_ADDRESS`/`QUARANTINE_ADDRESS`; failures never silently fall through to normal Gorelo delivery.                                                                                                                                                                                                                                                                                      |
@@ -991,15 +1081,17 @@ and current Workers plan documentation before sizing a deployment.
   suspected exposure.
 - Protect the only HTTP route with Cloudflare Access and prevent direct hostname
   bypass. A bearer token alone is not non-repudiable per-user identity.
-- Keep `MESSAGE_ARCHIVE` private. Raw EML, bounded previews, headers, addresses,
-  filenames, extracted webhook variables, review notes, and structured API
-  snapshots can all contain client data.
+- Keep `MESSAGE_ARCHIVE` private. Raw EML, short-lived normalized teaching
+  samples, bounded previews, headers, addresses, filenames, extracted webhook
+  variables, review notes, and structured API snapshots can all contain client
+  data.
 - Treat retained EML attachments as potentially malicious. Download and inspect
   them only in an appropriate isolated workflow.
 - Use short contractual retention and an R2 lifecycle slightly longer than D1
   retention.
-- Verify every forward/release destination in both the application allow-list
-  and Cloudflare's independent controls.
+- Verify every named-mailbox, legacy forward, quarantine, failure, and release
+  destination in both the application allow-list and Cloudflare's independent
+  controls.
 - Do not treat `TRUSTED_SENDER_DOMAINS`, From headers, custom headers, or client
   aliases as authentication.
 - Keep global spam policy in observation mode until real traffic is understood.

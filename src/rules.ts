@@ -5,6 +5,7 @@ import type {
   StoredRule,
 } from "./types";
 import type { RuleAction, RuleCondition } from "./validation";
+import type { GoreloMailboxDirectory } from "./mailbox-repository";
 
 type FieldValue = string | number | boolean | readonly string[];
 type RuleMatchState = "match" | "no_match" | "needs_mime";
@@ -310,15 +311,78 @@ function ensureAllowedDestination(
   return normalized;
 }
 
+function resolvedGoreloMailbox(
+  action: Extract<RuleAction, { type: "forward" | "forward_webhook" }> | null,
+  config: RuntimeConfig,
+  directory?: GoreloMailboxDirectory,
+): {
+  destination: string;
+  destinationMailboxId?: string;
+  destinationMailboxName?: string;
+} {
+  const legacyDestination = action?.destination;
+  if (legacyDestination) {
+    const destination = ensureAllowedDestination(legacyDestination, config);
+    const registered = directory?.mailboxes.find(
+      (mailbox) => mailbox.address === destination && mailbox.routable,
+    );
+    return {
+      destination,
+      ...(registered
+        ? {
+            destinationMailboxId: registered.id,
+            destinationMailboxName: registered.name,
+          }
+        : {}),
+    };
+  }
+
+  if (!directory) {
+    if (action?.mailboxId) {
+      throw new RuleActionError(
+        "A named Gorelo mailbox cannot be resolved before the mailbox registry is loaded",
+      );
+    }
+    return {
+      destination: ensureAllowedDestination(
+        config.defaultGoreloAddress,
+        config,
+      ),
+    };
+  }
+
+  const mailbox = action?.mailboxId
+    ? directory.byId.get(action.mailboxId)
+    : directory.defaultMailbox;
+  if (!mailbox) {
+    throw new RuleActionError(
+      action?.mailboxId
+        ? "The selected Gorelo mailbox is not registered"
+        : "The default Gorelo mailbox is not configured",
+    );
+  }
+  if (!mailbox.enabled) {
+    throw new RuleActionError("The selected Gorelo mailbox is disabled");
+  }
+  if (!mailbox.allowlisted) {
+    throw new RuleActionError(
+      "The selected Gorelo mailbox is outside the deployment allow-list",
+    );
+  }
+  return {
+    destination: ensureAllowedDestination(mailbox.address, config),
+    destinationMailboxId: mailbox.id,
+    destinationMailboxName: mailbox.name,
+  };
+}
+
 export function validateRuleAction(
   action: RuleAction,
   config: RuntimeConfig,
+  directory?: GoreloMailboxDirectory,
 ): void {
   if (action.type === "forward" || action.type === "forward_webhook") {
-    ensureAllowedDestination(
-      action.destination ?? config.defaultGoreloAddress,
-      config,
-    );
+    resolvedGoreloMailbox(action, config, directory);
     if (
       action.type === "forward_webhook" &&
       (!config.webhookSigningConfigured ||
@@ -359,28 +423,23 @@ function actionDecision(
   action: RuleAction,
   email: EvaluatedEmail,
   config: RuntimeConfig,
+  directory?: GoreloMailboxDirectory,
 ): Omit<Decision, "matchedRuleId" | "matchedRuleName"> {
   switch (action.type) {
     case "forward": {
-      const destination = ensureAllowedDestination(
-        action.destination ?? config.defaultGoreloAddress,
-        config,
-      );
+      const mailbox = resolvedGoreloMailbox(action, config, directory);
       return {
         type: "forward",
-        destination,
+        ...mailbox,
         reason: "forward rule matched",
         spam: email.spam,
       };
     }
     case "forward_webhook": {
-      const destination = ensureAllowedDestination(
-        action.destination ?? config.defaultGoreloAddress,
-        config,
-      );
+      const mailbox = resolvedGoreloMailbox(action, config, directory);
       return {
         type: "forward",
-        destination,
+        ...mailbox,
         webhook: {
           destinationId: action.webhookDestinationId,
           eventType: action.eventType,
@@ -449,13 +508,15 @@ function actionDecision(
 function fallbackDecision(
   email: EvaluatedEmail,
   config: RuntimeConfig,
+  directory?: GoreloMailboxDirectory,
 ): Decision {
   if (email.spam.isSpam) {
     switch (config.spamAction) {
       case "forward":
+        const spamMailbox = resolvedGoreloMailbox(null, config, directory);
         return {
           type: "forward",
-          destination: config.defaultGoreloAddress,
+          ...spamMailbox,
           reason: "spam threshold met; configured to forward",
           spam: email.spam,
         };
@@ -493,9 +554,10 @@ function fallbackDecision(
     }
   }
 
+  const defaultMailbox = resolvedGoreloMailbox(null, config, directory);
   return {
     type: "forward",
-    destination: config.defaultGoreloAddress,
+    ...defaultMailbox,
     reason: "default Gorelo route",
     spam: email.spam,
   };
@@ -505,6 +567,7 @@ function matchedRuleDecision(
   rule: StoredRule,
   email: EvaluatedEmail,
   config: RuntimeConfig,
+  directory?: GoreloMailboxDirectory,
 ): Decision {
   if (
     (rule.action.type === "forward" ||
@@ -515,10 +578,10 @@ function matchedRuleDecision(
     config.spamAction !== "forward" &&
     !rule.action.bypassSpam
   ) {
-    return fallbackDecision(email, config);
+    return fallbackDecision(email, config, directory);
   }
   return {
-    ...actionDecision(rule.action, email, config),
+    ...actionDecision(rule.action, email, config, directory),
     matchedRuleId: rule.id,
     matchedRuleName: rule.name,
     matchedRuleSnapshotId: `${rule.id}:${rule.updatedAt}`,
@@ -529,6 +592,7 @@ export function decide(
   email: EvaluatedEmail,
   rules: readonly StoredRule[],
   config: RuntimeConfig,
+  directory?: GoreloMailboxDirectory,
 ): Decision {
   const orderedRules = [...rules]
     .filter((rule) => rule.enabled)
@@ -540,16 +604,17 @@ export function decide(
 
   for (const rule of orderedRules) {
     if (ruleMatches(email, rule)) {
-      return matchedRuleDecision(rule, email, config);
+      return matchedRuleDecision(rule, email, config, directory);
     }
   }
-  return fallbackDecision(email, config);
+  return fallbackDecision(email, config, directory);
 }
 
 export function decideWithoutMime(
   email: EvaluatedEmail,
   rules: readonly StoredRule[],
   config: RuntimeConfig,
+  directory?: GoreloMailboxDirectory,
 ): Decision | undefined {
   const orderedRules = [...rules]
     .filter((rule) => rule.enabled)
@@ -565,9 +630,9 @@ export function decideWithoutMime(
       return undefined;
     }
     if (state === "match") {
-      return matchedRuleDecision(rule, email, config);
+      return matchedRuleDecision(rule, email, config, directory);
     }
   }
 
-  return fallbackDecision(email, config);
+  return fallbackDecision(email, config, directory);
 }

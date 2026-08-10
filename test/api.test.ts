@@ -31,23 +31,68 @@ function readinessDatabase(options: {
   unavailableWebhookDestinations?: number;
   currentClients?: number;
 }): D1Database {
-  return {
-    prepare: vi.fn((sql: string) => ({
-      all: vi.fn(async () => ({ results: [] })),
-      first: vi.fn(async () =>
-        sql.includes("AS direct_gorelo")
-          ? {
-              direct_gorelo: options.directGorelo ?? 0,
-              webhooks: options.webhooks ?? 0,
-              unavailable_webhook_destinations:
-                options.unavailableWebhookDestinations ?? 0,
-            }
-          : sql.includes("COUNT(*) AS count")
-            ? { count: options.currentClients ?? 0 }
-            : null,
-      ),
-    })),
-  } as unknown as D1Database;
+  let mailboxInitialized = false;
+  const mailbox = {
+    id: "00000000-0000-4000-8000-000000000001",
+    name: "Default Gorelo mailbox",
+    address: "tickets@gorelo.example",
+    enabled: 1,
+    is_default: 1,
+    version: 1,
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  };
+  const db = {
+    prepare: vi.fn((sql: string) => {
+      const statement = {
+        bind: vi.fn(() => statement),
+        all: vi.fn(async () => ({
+          results:
+            sql.includes("FROM gorelo_mailboxes") && mailboxInitialized
+              ? [mailbox]
+              : [],
+        })),
+        first: vi.fn(async () => {
+          if (sql.includes("COUNT(*) AS count FROM gorelo_mailboxes")) {
+            return { count: mailboxInitialized ? 1 : 0 };
+          }
+          if (sql.includes("FROM gorelo_mailbox_settings")) {
+            return mailboxInitialized
+              ? {
+                  default_mailbox_id: mailbox.id,
+                  version: 1,
+                  updated_at: mailbox.updated_at,
+                }
+              : null;
+          }
+          if (sql.includes("FROM gorelo_mailboxes m")) {
+            return mailboxInitialized ? mailbox : null;
+          }
+          return sql.includes("AS direct_gorelo")
+            ? {
+                direct_gorelo: options.directGorelo ?? 0,
+                webhooks: options.webhooks ?? 0,
+                unavailable_webhook_destinations:
+                  options.unavailableWebhookDestinations ?? 0,
+              }
+            : sql.includes("COUNT(*) AS count")
+              ? { count: options.currentClients ?? 0 }
+              : null;
+        }),
+        run: vi.fn(async () => {
+          if (sql.includes("INSERT INTO gorelo_mailbox_settings")) {
+            mailboxInitialized = true;
+          }
+          return { success: true, meta: { changes: 1 } };
+        }),
+      };
+      return statement;
+    }),
+    batch: vi.fn(async (statements: D1PreparedStatement[]) =>
+      Promise.all(statements.map((statement) => statement.run())),
+    ),
+  };
+  return db as unknown as D1Database;
 }
 
 describe("HTTP API", () => {
@@ -94,17 +139,11 @@ describe("HTTP API", () => {
   });
 
   it("checks every migrated schema on authenticated readiness", async () => {
-    const all = vi.fn(async () => ({ results: [{ id: 1, version: 1 }] }));
-    const first = vi.fn(async () => ({
-      direct_gorelo: 0,
-      webhooks: 0,
-      unavailable_webhook_destinations: 0,
-      count: 0,
-    }));
-    const prepare = vi.fn((_query: string) => ({ all, first }));
+    const db = readinessDatabase({ currentClients: 0 });
+    const prepare = vi.mocked(db.prepare);
     const response = await handleFetch(
       request("/api/v1/readiness"),
-      env({ prepare } as unknown as D1Database, {
+      env(db, {
         MESSAGE_ARCHIVE: {} as R2Bucket,
       }),
     );
@@ -122,6 +161,9 @@ describe("HTTP API", () => {
       "gorelo_client_sync",
       "client_aliases",
       "webhook_destinations",
+      "gorelo_mailboxes",
+      "gorelo_mailbox_settings",
+      "parser_captures",
     ]) {
       expect(sql).toContain(table);
     }

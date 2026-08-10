@@ -211,9 +211,10 @@ export async function extractEmailFacts(
   rules: readonly StoredRule[],
   config: RuntimeConfig,
   suppliedRaw?: ArrayBuffer,
+  forceMime = false,
 ): Promise<EmailFacts> {
   const basic = extractBasicEmailFacts(message);
-  if (!rulesNeedMime(rules)) {
+  if (!forceMime && !rulesNeedMime(rules)) {
     return basic;
   }
   if (message.rawSize > config.maxParseBytes) {

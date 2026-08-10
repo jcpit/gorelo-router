@@ -118,6 +118,10 @@ export interface DecisionGoreloAction {
 export interface Decision {
   type: DecisionType;
   destination?: string;
+  /** Stable named Gorelo mailbox selected for this routing decision. */
+  destinationMailboxId?: string;
+  /** Snapshot of the mailbox name at decision time for immutable audit context. */
+  destinationMailboxName?: string;
   webhook?: DecisionWebhook;
   gorelo?: DecisionGoreloAction;
   reason: string;
@@ -196,6 +200,8 @@ export interface ProcessingEvent {
   matchedRuleId?: string;
   matchedRuleName?: string;
   destination?: string;
+  destinationMailboxId?: string;
+  destinationMailboxName?: string;
   status: ProcessingStatus;
   error?: string;
   /** Optional for compatibility with metadata rows written before audit capture. */

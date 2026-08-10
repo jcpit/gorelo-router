@@ -24,6 +24,26 @@ import {
 import { getDelivery, listDeliveries } from "./delivery-repository";
 import { DELIVERY_STATES, type DeliveryState } from "./delivery-types";
 import { inspectArchivedContent } from "./mime";
+import {
+  createGoreloMailbox,
+  deleteGoreloMailbox,
+  GoreloMailboxInvariantError,
+  loadGoreloMailboxDirectory,
+  normalizeGoreloMailboxAddress,
+  setDefaultGoreloMailbox,
+  updateGoreloMailbox,
+  type GoreloMailboxDirectory,
+} from "./mailbox-repository";
+import {
+  ActiveParserCaptureError,
+  cancelParserCapture,
+  createParserCapture,
+  getParserCapture,
+  getParserCaptureStorage,
+  listParserCaptures,
+  ParserCaptureLimitError,
+} from "./parser-capture-repository";
+import { readParserSample } from "./parser-sample";
 import { extractWebhookVariables, WebhookExtractionError } from "./extraction";
 import {
   inferExtractionTemplate,
@@ -54,6 +74,7 @@ import {
   listQuarantinePage,
   listRules,
   markQuarantineReleaseUncertain,
+  RuleMailboxUnavailableError,
   updateRule,
   type EventPageCursor,
 } from "./repository";
@@ -98,15 +119,26 @@ const JSON_HEADERS = {
 };
 const MAX_JSON_BODY_BYTES = 256 * 1024;
 const MAX_ARCHIVED_PREVIEW_CHARACTERS = 8_000;
+const MAX_TRAINING_SAMPLE_CHARACTERS = 50_000;
 const INSECURE_ADMIN_TOKENS = new Set(["replace-with-a-long-random-token"]);
 
 const releaseRequestSchema = z
   .object({
     version: z.number().int().min(1),
     destination: z.string().trim().email().optional(),
+    mailboxId: z.string().uuid().optional(),
     note: z.string().trim().max(2_000).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((input, context) => {
+    if (input.destination !== undefined && input.mailboxId !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["mailboxId"],
+        message: "Choose a Gorelo mailbox or a legacy destination, not both",
+      });
+    }
+  });
 
 const dismissRequestSchema = z
   .object({
@@ -196,6 +228,99 @@ const webhookCreateSchema = z
 
 const webhookUpdateSchema = webhookCreateSchema
   .extend({ version: z.number().int().positive() })
+  .strict();
+
+const safeMailboxNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(120)
+  .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), {
+    message: "Mailbox name must not contain control characters",
+  });
+
+const mailboxCreateSchema = z
+  .object({
+    name: safeMailboxNameSchema,
+    address: z.string().trim().email(),
+    enabled: z.boolean().default(true),
+  })
+  .strict();
+
+const mailboxUpdateSchema = z
+  .object({
+    name: safeMailboxNameSchema,
+    enabled: z.boolean(),
+    version: z.number().int().positive(),
+  })
+  .strict();
+
+const mailboxDefaultSchema = z
+  .object({
+    mailboxId: z.string().uuid(),
+    version: z.number().int().positive(),
+  })
+  .strict();
+
+const parserCaptureCreateSchema = z
+  .object({
+    sourceEventId: z.string().uuid(),
+    match: z
+      .object({
+        recipient: z.string().trim().email(),
+        senderMode: z.enum(["any", "address", "domain"]),
+        senderValue: z.string().trim().min(1).max(254).optional(),
+        subjectContains: z.string().trim().min(1).max(200).optional(),
+      })
+      .strict()
+      .superRefine((match, context) => {
+        if (match.senderMode === "any") {
+          if (match.senderValue !== undefined) {
+            context.addIssue({
+              code: "custom",
+              path: ["senderValue"],
+              message: "senderValue is not allowed when senderMode is any",
+            });
+          }
+          return;
+        }
+        if (match.senderValue === undefined) {
+          context.addIssue({
+            code: "custom",
+            path: ["senderValue"],
+            message: `senderValue is required when senderMode is ${match.senderMode}`,
+          });
+          return;
+        }
+        if (
+          match.senderMode === "address" &&
+          !z.string().email().safeParse(match.senderValue).success
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["senderValue"],
+            message: "senderValue must be a valid email address",
+          });
+        }
+        if (
+          match.senderMode === "domain" &&
+          !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(
+            match.senderValue,
+          )
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["senderValue"],
+            message: "senderValue must be a valid domain",
+          });
+        }
+      }),
+    expiresInSeconds: z.number().int().min(300).max(3_600).default(900),
+  })
+  .strict();
+
+const parserCaptureCancelSchema = z
+  .object({ version: z.number().int().positive() })
   .strict();
 
 const QUARANTINE_STATES = new Set<QuarantineState>([
@@ -450,6 +575,38 @@ function isUniqueConstraintError(error: unknown, table: string): boolean {
   );
 }
 
+function isGoreloMailboxConflictError(error: unknown): boolean {
+  if (isUniqueConstraintError(error, "gorelo_mailboxes")) return true;
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("gorelo mailboxes cannot be replaced") ||
+    message.includes("gorelo mailbox names cannot replace")
+  );
+}
+
+async function goreloMailboxDirectory(
+  env: Env,
+  config: RuntimeConfig,
+): Promise<GoreloMailboxDirectory> {
+  return loadGoreloMailboxDirectory(env.DB, {
+    allowedAddresses: config.allowedForwardDestinations,
+    bootstrapAddress: config.defaultGoreloAddress,
+  });
+}
+
+function publicMailboxDirectory(directory: GoreloMailboxDirectory): {
+  mailboxes: GoreloMailboxDirectory["mailboxes"];
+  defaultMailboxId: string | null;
+  version: number | null;
+} {
+  return {
+    mailboxes: directory.mailboxes,
+    defaultMailboxId: directory.settings?.defaultMailboxId ?? null,
+    version: directory.settings?.version ?? null,
+  };
+}
+
 function catalogItemById(
   items: readonly unknown[],
   id: number | string,
@@ -483,7 +640,12 @@ async function validatePersistedRuleAction(
   config: RuntimeConfig,
 ): Promise<void> {
   const db = env.DB;
-  validateRuleAction(action, config);
+  const mailboxDirectory =
+    (action.type === "forward" || action.type === "forward_webhook") &&
+    action.destination === undefined
+      ? await goreloMailboxDirectory(env, config)
+      : undefined;
+  validateRuleAction(action, config, mailboxDirectory);
   if (action.type === "forward_webhook") {
     const destination = await getWebhookDestination(
       db,
@@ -691,6 +853,158 @@ async function hydratedEvent(
   }
 }
 
+type TrainingBodyStatus = "complete" | "truncated" | "unavailable";
+
+interface TrainingSampleResponse {
+  sample: {
+    eventId: string;
+    from: string;
+    to: string;
+    subject: string;
+    bodyText: string;
+    body: {
+      status: TrainingBodyStatus;
+      source:
+        "temporary_capture" | "retained_original" | "audit_preview" | "none";
+      expiresAt?: string;
+    };
+    createdAt: string;
+  };
+  canCaptureNext: boolean;
+  warnings: readonly { code: string }[];
+}
+
+/** Returns a plain-text-only parser sample without exposing raw MIME or R2 keys. */
+async function trainingSampleForEvent(
+  env: Env,
+  config: RuntimeConfig,
+  event: ProcessingEvent,
+): Promise<TrainingSampleResponse> {
+  const warnings: { code: string }[] = [];
+  const base = {
+    eventId: event.id,
+    from: event.envelopeFrom,
+    to: event.envelopeTo,
+    subject: event.subject,
+    createdAt: event.createdAt,
+  };
+
+  if (env.MESSAGE_ARCHIVE) {
+    try {
+      const captureRow = await env.DB.prepare(
+        `SELECT id
+             FROM parser_captures
+            WHERE captured_event_id = ? AND state = 'captured'
+            ORDER BY captured_at DESC
+            LIMIT 1`,
+      )
+        .bind(event.id)
+        .first<{ id: string }>();
+      const storage = captureRow
+        ? await getParserCaptureStorage(env.DB, captureRow.id)
+        : null;
+      if (storage) {
+        const captured = await readParserSample(env.MESSAGE_ARCHIVE, storage);
+        if (captured?.eventId === event.id) {
+          return {
+            sample: {
+              ...base,
+              from: captured.from,
+              to: captured.to,
+              subject: captured.subject,
+              bodyText: captured.bodyText,
+              body: {
+                status: captured.bodyTruncated ? "truncated" : "complete",
+                source: "temporary_capture",
+                expiresAt: storage.expiresAt,
+              },
+            },
+            canCaptureNext: true,
+            warnings,
+          };
+        }
+        if (!captured) warnings.push({ code: "temporary_sample_missing" });
+      }
+    } catch {
+      warnings.push({ code: "temporary_sample_unavailable" });
+    }
+  }
+
+  if (env.MESSAGE_ARCHIVE && event.audit?.rawAvailable) {
+    const storage = event.quarantine
+      ? await getQuarantineStorage(env.DB, event.id)
+      : await getEventStorage(env.DB, event.id);
+    if (storage?.objectKey) {
+      try {
+        const archived = await readArchivedMessage(
+          env.MESSAGE_ARCHIVE,
+          storage.objectKey,
+        );
+        if (!archived) {
+          warnings.push({ code: "retained_original_missing" });
+        } else if (archived.size > config.maxParseBytes) {
+          warnings.push({ code: "retained_original_too_large" });
+        } else {
+          const content = await inspectArchivedContent(
+            await verifiedArchivedArrayBuffer(archived, storage.sha256),
+            config,
+          );
+          const responseTruncated =
+            content.bodyText.length > MAX_TRAINING_SAMPLE_CHARACTERS;
+          return {
+            sample: {
+              ...base,
+              bodyText: content.bodyText.slice(
+                0,
+                MAX_TRAINING_SAMPLE_CHARACTERS,
+              ),
+              body: {
+                status:
+                  content.bodyTruncated || responseTruncated
+                    ? "truncated"
+                    : "complete",
+                source: "retained_original",
+              },
+            },
+            canCaptureNext: true,
+            warnings,
+          };
+        }
+      } catch {
+        warnings.push({ code: "retained_original_unavailable" });
+      }
+    }
+  }
+
+  const auditBody = event.audit?.mimeParsed
+    ? (event.audit.bodyPreview ?? "")
+    : "";
+  if (auditBody) {
+    return {
+      sample: {
+        ...base,
+        bodyText: auditBody.slice(0, MAX_TRAINING_SAMPLE_CHARACTERS),
+        body: {
+          status: event.audit?.bodyTruncated ? "truncated" : "complete",
+          source: "audit_preview",
+        },
+      },
+      canCaptureNext: Boolean(env.MESSAGE_ARCHIVE),
+      warnings,
+    };
+  }
+
+  return {
+    sample: {
+      ...base,
+      bodyText: "",
+      body: { status: "unavailable", source: "none" },
+    },
+    canCaptureNext: Boolean(env.MESSAGE_ARCHIVE),
+    warnings,
+  };
+}
+
 async function quarantineSummary(db: D1Database): Promise<{
   pending: number;
   releaseFailed: number;
@@ -768,6 +1082,9 @@ async function handleProtectedApi(
   if (url.pathname === "/api/v1/runtime" && request.method === "GET") {
     const rawQuarantine =
       config.quarantineMode === "internal" && env.MESSAGE_ARCHIVE !== undefined;
+    const mailboxDirectory = await goreloMailboxDirectory(env, config).catch(
+      () => undefined,
+    );
     return json({
       runtime: {
         spamAction: config.spamAction,
@@ -777,7 +1094,10 @@ async function handleProtectedApi(
         ...(config.quarantineAddress
           ? { quarantineAddress: config.quarantineAddress }
           : {}),
-        defaultGoreloAddress: config.defaultGoreloAddress,
+        defaultGoreloAddress:
+          mailboxDirectory?.defaultMailbox?.address ??
+          config.defaultGoreloAddress,
+        defaultGoreloMailboxId: mailboxDirectory?.defaultMailbox?.id ?? null,
         eventRetentionDays: config.eventRetentionDays,
         maxParseBytes: config.maxParseBytes,
         features: {
@@ -807,6 +1127,82 @@ async function handleProtectedApi(
     }
   }
 
+  if (url.pathname === "/api/v1/parser-captures") {
+    if (request.method === "GET") {
+      return json({
+        captures: await listParserCaptures(env.DB, {
+          limit: 20,
+          sampleAvailableAt: new Date().toISOString(),
+        }),
+      });
+    }
+    if (request.method === "POST") {
+      if (!env.MESSAGE_ARCHIVE) {
+        throw new HttpError(
+          503,
+          "Capture next requires the private MESSAGE_ARCHIVE binding",
+        );
+      }
+      const input = parserCaptureCreateSchema.parse(await readJson(request));
+      const sourceEvent = await getEvent(env.DB, input.sourceEventId);
+      if (!sourceEvent) {
+        throw new HttpError(404, "Source processing event not found");
+      }
+      const now = new Date();
+      const capture = await createParserCapture(env.DB, {
+        sourceEventId: sourceEvent.id,
+        match: input.match,
+        requestedBy: reviewActor(request),
+        createdAt: now.toISOString(),
+        waitExpiresAt: new Date(
+          now.getTime() + input.expiresInSeconds * 1_000,
+        ).toISOString(),
+      });
+      return json({ capture }, 201);
+    }
+    return problem(405, "Method not allowed");
+  }
+
+  const parserCaptureCancelMatch = url.pathname.match(
+    /^\/api\/v1\/parser-captures\/([^/]+)\/cancel$/,
+  );
+  if (parserCaptureCancelMatch) {
+    if (request.method !== "POST") return problem(405, "Method not allowed");
+    const id = z
+      .string()
+      .uuid()
+      .parse(decodeURIComponent(parserCaptureCancelMatch[1]!));
+    const input = parserCaptureCancelSchema.parse(await readJson(request));
+    const result = await cancelParserCapture(env.DB, id, input.version);
+    if (result.status === "updated") return json({ capture: result.capture });
+    if (result.status === "not_found") {
+      return problem(404, "Parser capture not found");
+    }
+    return problem(
+      409,
+      "The parser capture changed; refresh before trying again",
+    );
+  }
+
+  const parserCaptureMatch = url.pathname.match(
+    /^\/api\/v1\/parser-captures\/([^/]+)$/,
+  );
+  if (parserCaptureMatch) {
+    if (request.method !== "GET") return problem(405, "Method not allowed");
+    const id = z
+      .string()
+      .uuid()
+      .parse(decodeURIComponent(parserCaptureMatch[1]!));
+    const capture = await getParserCapture(
+      env.DB,
+      id,
+      new Date().toISOString(),
+    );
+    return capture
+      ? json({ capture })
+      : problem(404, "Parser capture not found");
+  }
+
   if (url.pathname === "/api/v1/setup/status" && request.method === "GET") {
     return json({ setup: await buildSetupStatus(env, config) });
   }
@@ -814,6 +1210,143 @@ async function handleProtectedApi(
   if (url.pathname === "/api/v1/integrations/gorelo/test") {
     if (request.method !== "POST") return problem(405, "Method not allowed");
     return json({ gorelo: await testGoreloConnection(env, config) });
+  }
+
+  if (url.pathname === "/api/v1/integrations/gorelo/mailboxes") {
+    const directory = await goreloMailboxDirectory(env, config);
+    if (request.method === "GET") {
+      return json(publicMailboxDirectory(directory));
+    }
+    if (request.method === "POST") {
+      const input = mailboxCreateSchema.parse(await readJson(request));
+      const address = normalizeGoreloMailboxAddress(input.address);
+      if (!config.allowedForwardDestinations.has(address)) {
+        throw new HttpError(
+          400,
+          "Add this mailbox address to ALLOWED_FORWARD_DESTINATIONS before registering it",
+        );
+      }
+      try {
+        const mailbox = await createGoreloMailbox(env.DB, {
+          ...input,
+          address,
+        });
+        return json({ mailbox }, 201);
+      } catch (error) {
+        if (isGoreloMailboxConflictError(error)) {
+          throw new HttpError(
+            409,
+            "A Gorelo mailbox with that name or address already exists",
+          );
+        }
+        throw error;
+      }
+    }
+    return problem(405, "Method not allowed");
+  }
+
+  if (url.pathname === "/api/v1/integrations/gorelo/mailboxes/default") {
+    if (request.method !== "PUT") return problem(405, "Method not allowed");
+    const input = mailboxDefaultSchema.parse(await readJson(request));
+    const directory = await goreloMailboxDirectory(env, config);
+    const target = directory.byId.get(input.mailboxId);
+    if (!target) throw new HttpError(404, "Gorelo mailbox not found");
+    if (!target.enabled) {
+      throw new HttpError(409, "A disabled mailbox cannot be the default");
+    }
+    if (!target.allowlisted) {
+      throw new HttpError(
+        400,
+        "The selected mailbox is outside ALLOWED_FORWARD_DESTINATIONS",
+      );
+    }
+    const result = await setDefaultGoreloMailbox(
+      env.DB,
+      input.mailboxId,
+      input.version,
+    );
+    if (result.status === "updated") {
+      return json({ mailbox: result.mailbox, settings: result.settings });
+    }
+    if (result.status === "not_found") {
+      return problem(404, "Gorelo mailbox not found");
+    }
+    if (result.status === "disabled") {
+      return problem(409, "A disabled mailbox cannot be the default");
+    }
+    return problem(
+      409,
+      "The Gorelo mailbox registry changed; refresh before trying again",
+    );
+  }
+
+  const goreloMailboxMatch = url.pathname.match(
+    /^\/api\/v1\/integrations\/gorelo\/mailboxes\/([^/]+)$/,
+  );
+  if (goreloMailboxMatch) {
+    const id = z
+      .string()
+      .uuid()
+      .parse(decodeURIComponent(goreloMailboxMatch[1]!));
+    if (request.method === "PUT") {
+      const input = mailboxUpdateSchema.parse(await readJson(request));
+      let result;
+      try {
+        result = await updateGoreloMailbox(env.DB, id, input.version, input);
+      } catch (error) {
+        if (isGoreloMailboxConflictError(error)) {
+          throw new HttpError(
+            409,
+            "A Gorelo mailbox with that name already exists",
+          );
+        }
+        throw error;
+      }
+      if (result.status === "updated") {
+        return json({ mailbox: result.mailbox });
+      }
+      if (result.status === "not_found") {
+        return problem(404, "Gorelo mailbox not found");
+      }
+      if (result.status === "default") {
+        return problem(409, "The default mailbox cannot be disabled");
+      }
+      if (result.status === "referenced") {
+        return problem(
+          409,
+          "Repoint rules that use this mailbox before disabling it",
+        );
+      }
+      return problem(
+        409,
+        "The Gorelo mailbox changed; refresh before trying again",
+      );
+    }
+    if (request.method === "DELETE") {
+      const version = positiveQueryInteger(
+        url.searchParams.get("version"),
+        "version",
+      );
+      const result = await deleteGoreloMailbox(env.DB, id, version);
+      if (result === "deleted") return new Response(null, { status: 204 });
+      if (result === "not_found") {
+        return problem(404, "Gorelo mailbox not found");
+      }
+      if (result === "default") {
+        return problem(409, "The default mailbox cannot be deleted");
+      }
+      if (result === "referenced") {
+        return problem(
+          409,
+          "Repoint rules that use this mailbox before deleting it",
+        );
+      }
+      return problem(
+        409,
+        "The Gorelo mailbox changed; refresh before trying again",
+      );
+    }
+    return problem(405, "Method not allowed");
   }
 
   if (url.pathname === "/api/v1/integrations/gorelo/clients") {
@@ -1174,7 +1707,17 @@ async function handleProtectedApi(
   if (url.pathname === "/api/v1/rules" && request.method === "POST") {
     const input = ruleInputSchema.parse(await readJson(request));
     await validatePersistedRuleAction(env, input.action, config);
-    return json({ rule: await createRule(env.DB, input) }, 201);
+    try {
+      return json({ rule: await createRule(env.DB, input) }, 201);
+    } catch (error) {
+      if (error instanceof RuleMailboxUnavailableError) {
+        throw new HttpError(
+          409,
+          "The selected Gorelo mailbox changed; refresh before saving the rule",
+        );
+      }
+      throw error;
+    }
   }
 
   const ruleMatch = url.pathname.match(/^\/api\/v1\/rules\/([^/]+)$/);
@@ -1187,7 +1730,18 @@ async function handleProtectedApi(
     if (request.method === "PUT") {
       const input = ruleInputSchema.parse(await readJson(request));
       await validatePersistedRuleAction(env, input.action, config);
-      const rule = await updateRule(env.DB, id, input);
+      let rule;
+      try {
+        rule = await updateRule(env.DB, id, input);
+      } catch (error) {
+        if (error instanceof RuleMailboxUnavailableError) {
+          throw new HttpError(
+            409,
+            "The selected Gorelo mailbox changed; refresh before saving the rule",
+          );
+        }
+        throw error;
+      }
       return rule ? json({ rule }) : problem(404, "Rule not found");
     }
     if (request.method === "DELETE") {
@@ -1224,6 +1778,17 @@ async function handleProtectedApi(
       events: page.items,
       nextCursor: page.nextCursor ? encodeEventCursor(page.nextCursor) : null,
     });
+  }
+
+  const eventTrainingSampleMatch = url.pathname.match(
+    /^\/api\/v1\/events\/([^/]+)\/training-sample$/,
+  );
+  if (eventTrainingSampleMatch) {
+    if (request.method !== "GET") return problem(405, "Method not allowed");
+    const eventId = decodeURIComponent(eventTrainingSampleMatch[1]!);
+    const event = await getEvent(env.DB, eventId);
+    if (!event) return problem(404, "Processing event not found");
+    return json(await trainingSampleForEvent(env, config, event));
   }
 
   const eventRawMatch = url.pathname.match(/^\/api\/v1\/events\/([^/]+)\/raw$/);
@@ -1381,10 +1946,35 @@ async function handleProtectedApi(
         "Automated quarantine release is not configured",
       );
     }
-    const destination = input.destination ?? config.defaultGoreloAddress;
+    const mailboxDirectory = await goreloMailboxDirectory(env, config);
+    const selectedMailbox = input.mailboxId
+      ? mailboxDirectory.byId.get(input.mailboxId)
+      : input.destination
+        ? undefined
+        : mailboxDirectory.defaultMailbox;
+    if (input.mailboxId && !selectedMailbox) {
+      throw new HttpError(400, "The selected Gorelo mailbox is not registered");
+    }
+    if (selectedMailbox && !selectedMailbox.routable) {
+      throw new HttpError(
+        400,
+        "The selected Gorelo mailbox is disabled or outside the deployment allow-list",
+      );
+    }
+    const destination =
+      input.destination ??
+      selectedMailbox?.address ??
+      config.defaultGoreloAddress;
     validateRuleAction(
-      { type: "forward", destination, bypassSpam: false },
+      input.destination
+        ? { type: "forward", destination, bypassSpam: false }
+        : {
+            type: "forward",
+            ...(selectedMailbox ? { mailboxId: selectedMailbox.id } : {}),
+            bypassSpam: false,
+          },
       config,
+      mailboxDirectory,
     );
     const storage = await getQuarantineStorage(env.DB, eventId);
     if (!storage) throw new HttpError(404, "Quarantined message not found");
@@ -1549,7 +2139,10 @@ async function handleProtectedApi(
 
   if (url.pathname === "/api/v1/evaluate" && request.method === "POST") {
     const input = dryRunEmailSchema.parse(await readJson(request));
-    const rules = await listRules(env.DB);
+    const [rules, mailboxDirectory] = await Promise.all([
+      listRules(env.DB),
+      goreloMailboxDirectory(env, config),
+    ]);
     const suppliedFacts = dryRunFacts(input, config.maxBodyCharacters);
     const basicFacts: EmailFacts = {
       ...suppliedFacts,
@@ -1563,6 +2156,7 @@ async function handleProtectedApi(
       { ...basicFacts, spam: basicSpam },
       rules,
       config,
+      mailboxDirectory,
     );
     if (
       !preliminaryDecision &&
@@ -1586,7 +2180,8 @@ async function handleProtectedApi(
       ? basicSpam
       : assessSpam(suppliedFacts, config);
     const decision =
-      preliminaryDecision ?? decide({ ...suppliedFacts, spam }, rules, config);
+      preliminaryDecision ??
+      decide({ ...suppliedFacts, spam }, rules, config, mailboxDirectory);
     let webhookPreview:
       | {
           variables: Record<string, string>;
@@ -1703,6 +2298,15 @@ export async function handleFetch(
     }
     if (error instanceof RuleActionError) {
       return problem(400, error.message);
+    }
+    if (error instanceof GoreloMailboxInvariantError) {
+      return problem(409, error.message);
+    }
+    if (error instanceof ActiveParserCaptureError) {
+      return problem(409, error.message, { code: "capture_already_active" });
+    }
+    if (error instanceof ParserCaptureLimitError) {
+      return problem(429, error.message, { code: "capture_limit_reached" });
     }
     if (error instanceof ClientAliasConflictError) {
       return problem(

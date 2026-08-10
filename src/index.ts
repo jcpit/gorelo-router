@@ -4,8 +4,45 @@ import { handleEmail } from "./email-handler";
 import { processPendingGoreloDeliveries } from "./gorelo-delivery";
 import { deleteExpiredGoreloCatalogCache } from "./gorelo-cache";
 import { deleteEventsBefore, listExpiredArchiveKeys } from "./repository";
+import {
+  deleteTerminalParserCapturesBefore,
+  expireCapturedParserCapture,
+  expirePendingParserCaptures,
+  listExpiredParserCaptureSamples,
+  PARSER_CAPTURE_SAMPLE_RETENTION_MS,
+  recoverStaleParserCaptureClaims,
+} from "./parser-capture-repository";
 import type { Env } from "./types";
 import { retryClaimableWebhookDeliveries } from "./webhook-delivery";
+
+export async function deleteExpiredParserSampleObjects(
+  bucket: R2Bucket | undefined,
+  uploadedBefore: Date,
+): Promise<number> {
+  if (!bucket) return 0;
+  let deleted = 0;
+  let cursor: string | undefined;
+  do {
+    const page = await bucket.list({
+      prefix: "parser-samples/",
+      limit: 1_000,
+      ...(cursor ? { cursor } : {}),
+    });
+    const keys = page.objects
+      .filter(
+        (object) =>
+          object.key.startsWith("parser-samples/") &&
+          object.uploaded <= uploadedBefore,
+      )
+      .map((object) => object.key);
+    if (keys.length > 0) {
+      await bucket.delete(keys);
+      deleted += keys.length;
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  return deleted;
+}
 
 async function expireAuditData(env: Env, cutoff: string): Promise<number> {
   while (true) {
@@ -30,6 +67,56 @@ async function expireAuditData(env: Env, cutoff: string): Promise<number> {
   return deleteEventsBefore(env.DB, cutoff);
 }
 
+async function maintainParserCaptures(env: Env): Promise<{
+  pendingExpired: number;
+  claimsRecovered: number;
+  claimExpiries: number;
+  samplesExpired: number;
+  sampleObjectsExpired: number;
+}> {
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const claims = await recoverStaleParserCaptureClaims(env.DB, {
+    staleBefore: new Date(now.getTime() - 10 * 60 * 1_000).toISOString(),
+    recoveredAt: nowIso,
+  });
+  const pendingExpired = await expirePendingParserCaptures(env.DB, nowIso);
+  const sampleObjectsExpired = await deleteExpiredParserSampleObjects(
+    env.MESSAGE_ARCHIVE,
+    new Date(now.getTime() - PARSER_CAPTURE_SAMPLE_RETENTION_MS),
+  );
+  const expiredSamples = await listExpiredParserCaptureSamples(env.DB, nowIso);
+  let samplesExpired = 0;
+  if (expiredSamples.length > 0) {
+    if (!env.MESSAGE_ARCHIVE) {
+      throw new Error(
+        "Expired parser samples reference private objects, but MESSAGE_ARCHIVE is unavailable",
+      );
+    }
+    for (const sample of expiredSamples) {
+      await env.MESSAGE_ARCHIVE.delete(sample.objectKey);
+      const result = await expireCapturedParserCapture(
+        env.DB,
+        sample.captureId,
+        sample.version,
+        nowIso,
+      );
+      if (result.status === "updated") samplesExpired += 1;
+    }
+  }
+  await deleteTerminalParserCapturesBefore(
+    env.DB,
+    new Date(now.getTime() - 24 * 60 * 60 * 1_000).toISOString(),
+  );
+  return {
+    pendingExpired,
+    claimsRecovered: claims.recovered,
+    claimExpiries: claims.expired,
+    samplesExpired,
+    sampleObjectsExpired,
+  };
+}
+
 export default {
   fetch(request, env) {
     return handleFetch(request, env);
@@ -46,10 +133,12 @@ export default {
         Promise.all([
           retryClaimableWebhookDeliveries(env, config),
           processPendingGoreloDeliveries(env, config),
-        ]).then(([webhooks, gorelo]) => {
+          maintainParserCaptures(env),
+        ]).then(([webhooks, gorelo, captures]) => {
           console.log("Processed due outbound deliveries", {
             webhooks,
             gorelo,
+            captures,
           });
         }),
       );

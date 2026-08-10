@@ -278,11 +278,11 @@ const ADMIN_HTML = String.raw`<!doctype html>
     .event-list { display:grid; gap:8px; }
     .pagination-control { width:100%; margin-top:10px; }
     .event-card { border:1px solid var(--line); border-radius:13px; background:#fff; overflow:hidden; }
-    .event-card[open] { border-color:#b8c6d8; box-shadow:0 7px 20px rgba(20,33,58,.06); }
+    .event-card.open { border-color:#b8c6d8; box-shadow:0 7px 20px rgba(20,33,58,.06); }
     .event-card summary,.audit-summary { width:100%; display:grid; grid-template-columns:120px minmax(0,1fr) 140px 110px 24px; gap:14px; align-items:center; min-height:75px; padding:13px 16px; border:0; border-radius:0; cursor:pointer; list-style:none; text-align:left; background:#fff; box-shadow:none; }
     .event-card summary::-webkit-details-marker { display:none; }
     .event-card summary::after,.audit-summary::after { width:7px; height:7px; content:""; justify-self:end; border-right:1.5px solid var(--soft); border-bottom:1.5px solid var(--soft); transform:rotate(45deg); transition:transform .16s var(--ease-out); }
-    .event-card[open] summary::after,.audit-summary[aria-expanded="true"]::after { transform:rotate(225deg); }
+    .event-card.open summary::after,.audit-summary[aria-expanded="true"]::after { transform:rotate(225deg); }
     .event-message { min-width:0; }
     .event-message strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .event-route { margin-top:3px; overflow:hidden; color:var(--muted); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
@@ -345,6 +345,12 @@ const ADMIN_HTML = String.raw`<!doctype html>
     .audit-detail > .review-body { padding:16px; }
     .audit-loading { padding:18px; color:var(--muted); }
     .retention-note { margin:0; color:var(--muted); font-size:11px; }
+    .capture-banner { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:13px; padding:12px 14px; border:1px solid #b8cff3; border-radius:12px; color:#24539b; background:#f2f7ff; }
+    .capture-banner.warning { color:var(--warning); border-color:#e8c57d; background:#fffaf0; }
+    .capture-banner-copy { min-width:0; }
+    .capture-banner-copy strong,.capture-banner-copy span { display:block; }
+    .capture-banner-copy span { margin-top:2px; font-size:11px; overflow-wrap:anywhere; }
+    .capture-banner-actions { flex:0 0 auto; display:flex; gap:7px; flex-wrap:wrap; }
     .delivery-list { display:grid; gap:9px; }
     .delivery-card { min-width:0; padding:12px; border:1px solid var(--line); border-radius:10px; background:#fafcff; }
     .delivery-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:10px; }
@@ -423,6 +429,31 @@ const ADMIN_HTML = String.raw`<!doctype html>
     .trainer-dialog .dialog-footer { align-items:center; justify-content:space-between; }
     .trainer-footer-note { margin:0; color:var(--muted); font-size:11px; }
     .trainer-footer-actions { display:flex; gap:8px; }
+
+    dialog.parser-rule-dialog { width:min(720px,calc(100% - 28px)); }
+    .parser-sample-summary { display:grid; gap:8px; padding:13px; border:1px solid var(--line); border-radius:11px; background:#fafcff; }
+    .parser-sample-line { min-width:0; display:grid; grid-template-columns:72px minmax(0,1fr); gap:10px; font-size:12px; }
+    .parser-sample-line strong { color:var(--muted); }
+    .parser-sample-line span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .parser-body-status { margin:0; padding:10px 12px; border:1px solid #c6d9f8; border-radius:9px; color:#24539b; background:#f2f7ff; font-size:12px; }
+    .parser-body-status.warning { color:var(--warning); border-color:#e8c57d; background:#fffaf0; }
+    .parser-capture-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .parser-capture-actions p { margin:0; color:var(--muted); font-size:11px; }
+    .parser-capture-config { min-width:0; flex:1 1 auto; display:grid; gap:9px; }
+    .parser-capture-options { display:grid; grid-template-columns:minmax(170px,.7fr) minmax(0,1.3fr); gap:8px; }
+    .outcome-fieldset { min-width:0; margin:0; padding:0; border:0; }
+    .outcome-fieldset legend { margin-bottom:9px; color:#34445e; font-size:12px; font-weight:750; }
+    .outcome-options { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .outcome-card { min-width:0; display:grid; grid-template-columns:20px minmax(0,1fr); gap:9px; align-items:start; padding:12px; border:1px solid var(--line); border-radius:11px; background:#fff; cursor:pointer; }
+    .outcome-card:hover { border-color:#9cb3d0; background:#f8fbff; }
+    .outcome-card:has(input:checked) { border-color:var(--brand); background:var(--brand-tint); box-shadow:0 0 0 1px var(--brand); }
+    .outcome-card input { width:18px; min-height:18px; margin:2px 0 0; accent-color:var(--brand); }
+    .outcome-card strong,.outcome-card span { display:block; }
+    .outcome-card strong { font-size:13px; }
+    .outcome-card span { margin-top:2px; color:var(--muted); font-size:11px; }
+    .parser-route-field { padding:12px; border:1px solid var(--line); border-radius:11px; background:#fafcff; }
+    .draft-banner { display:flex; align-items:flex-start; gap:10px; margin:0 0 16px; padding:11px 12px; border:1px solid #c6d9f8; border-radius:10px; color:#24539b; background:#f2f7ff; }
+    .draft-banner p { margin:2px 0 0; font-size:11px; }
 
     dialog.command-dialog { width:min(660px,calc(100% - 28px)); max-height:min(680px,calc(100vh - 40px)); margin-top:min(14vh,120px); padding:0; overflow:hidden; border:0; border-radius:16px; color:var(--ink); background:#fff; box-shadow:0 30px 90px rgba(7,16,30,.34); opacity:0; transform:translateY(-12px) scale(.985); transition:opacity .24s var(--ease-out),transform .24s var(--ease-out),overlay .24s allow-discrete,display .24s allow-discrete; }
     dialog.command-dialog[open] { opacity:1; transform:none; }
@@ -531,6 +562,19 @@ const ADMIN_HTML = String.raw`<!doctype html>
     .catalog-count strong { display:block; font-size:17px; font-variant-numeric:tabular-nums; }
     .catalog-count span { display:block; overflow:hidden; color:var(--muted); font-size:9px; font-weight:750; text-overflow:ellipsis; text-transform:capitalize; white-space:nowrap; }
     .setup-extensions { display:grid; grid-template-columns:minmax(0,1.08fr) minmax(340px,.92fr); gap:14px; margin-top:14px; }
+    .mailbox-card { grid-column:1/-1; }
+    .mailbox-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+    .mailbox-row { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:center; padding:12px; border:1px solid var(--line); border-radius:11px; background:#fafcff; }
+    .mailbox-row-heading { min-width:0; }
+    .mailbox-row-heading h4 { display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin:0; font-size:13px; }
+    .mailbox-address { display:block; margin-top:4px; color:var(--muted); font:11px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
+    .mailbox-actions { display:flex; justify-content:flex-end; gap:5px; flex-wrap:wrap; }
+    .mailbox-form { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; align-items:start; margin-top:12px; padding:13px; border:1px solid #b9c9df; border-radius:11px; background:#f8fbff; }
+    .mailbox-form-heading,.mailbox-form .form-actions,.mailbox-form .error { grid-column:1/-1; }
+    .mailbox-form-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+    .mailbox-form-heading h4 { margin:0; font-size:13px; }
+    .mailbox-form-heading p { margin:2px 0 0; color:var(--muted); font-size:10px; }
+    .mailbox-form .inline-check { align-self:center; }
     .compact-card-heading { align-items:center; }
     .compact-card-heading .toolbar { flex:0 0 auto; }
     .directory-toolbar { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:9px; align-items:end; margin-bottom:12px; }
@@ -603,6 +647,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       .test-result { position:static; }
       .setup-grid { grid-template-columns:1fr; }
       .setup-extensions { grid-template-columns:1fr; }
+      .mailbox-list { grid-template-columns:1fr; }
       .quarantine-layout { grid-template-columns:minmax(250px,.8fr) minmax(0,1.2fr); }
       .review-detail-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
       dialog.trainer-dialog { height:calc(100dvh - 20px); }
@@ -610,6 +655,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       .trainer-sample-panel,.trainer-inspector { overflow:visible; }
       .trainer-sample-panel { border-right:0; border-bottom:1px solid var(--line); }
       .trainer-body-input { min-height:240px; }
+      .outcome-options { grid-template-columns:1fr; }
     }
     @media (max-width:700px) {
       .shell { width:min(100% - 24px,1180px); }
@@ -677,7 +723,12 @@ const ADMIN_HTML = String.raw`<!doctype html>
       .attempt-item time,.attempt-item p { grid-column:1; }
       .setup-hero { align-items:flex-start; flex-direction:column; }
       .setup-profile { text-align:left; }
-      .inline-setup-form,.alias-resolution-form,.webhook-form-grid { grid-template-columns:1fr; }
+      .inline-setup-form,.alias-resolution-form,.webhook-form-grid,.mailbox-form { grid-template-columns:1fr; }
+      .mailbox-form-heading,.mailbox-form .form-actions,.mailbox-form .error { grid-column:auto; }
+      .mailbox-row { grid-template-columns:1fr; }
+      .mailbox-actions { justify-content:flex-start; }
+      .capture-banner,.parser-capture-actions { align-items:stretch; flex-direction:column; }
+      .parser-capture-options { grid-template-columns:1fr; }
       .inline-setup-form .alias-values-field,.inline-setup-form .form-actions,.alias-resolution-form .form-actions,.alias-resolution-form .resolution-result { grid-column:auto; }
       .inline-setup-form .form-actions,.alias-resolution-form .form-actions { display:grid; grid-template-columns:1fr; }
       .inline-setup-form .form-actions button,.alias-resolution-form .form-actions button { width:100%; }
@@ -824,6 +875,10 @@ const ADMIN_HTML = String.raw`<!doctype html>
             <button id="builderMode" type="button" aria-pressed="true">Guided builder</button>
             <button id="jsonMode" type="button" aria-pressed="false">Advanced JSON</button>
           </div>
+          <div id="generatedDraftBanner" class="draft-banner hidden" role="status">
+            <span class="mode-icon" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M8 5 3 12l5 7m8-14 5 7-5 7M14 4l-4 16"/></svg></span>
+            <div><strong>Drafted from an audited email</strong><p>Review the match conditions, choose any required Gorelo records, teach the changing values, then save. The rule starts disabled.</p></div>
+          </div>
 
           <form id="ruleForm">
             <section class="form-section" aria-labelledby="basicsHeading">
@@ -847,7 +902,8 @@ const ADMIN_HTML = String.raw`<!doctype html>
               <div class="section-heading"><span class="section-number" aria-hidden="true">3</span><div><h3 id="actionHeading">Action</h3><p>Choose what happens when this rule is the first match.</p></div></div>
               <div class="form-grid">
                 <div class="form-field"><label for="actionType">Action</label><select id="actionType"><option value="forward">Forward to Gorelo</option><option value="create_ticket">Create Gorelo ticket via API</option><option value="create_alert">Create Gorelo alert via API</option><option value="forward_webhook">Forward + signed webhook</option><option value="quarantine">Quarantine for review</option><option value="drop">Accept and discard</option><option value="reject">Reject at SMTP</option></select></div>
-                <div id="actionDestinationGroup" class="form-field span-2"><label for="actionDestination">Destination override</label><input id="actionDestination" type="email" placeholder="Optional allow-listed address"><span class="field-help">Leave blank to use the configured default for this action.</span></div>
+                <div id="actionMailboxGroup" class="form-field span-2"><label for="actionMailboxId">Gorelo mailbox</label><select id="actionMailboxId"><option value="">Default Gorelo mailbox</option></select><span class="field-help">Choose a named destination, or follow the persistent default mailbox.</span></div>
+                <div id="quarantineDestinationGroup" class="form-field span-2 hidden"><label for="quarantineDestination">Quarantine destination override</label><input id="quarantineDestination" type="email" placeholder="Optional allow-listed review address"><span class="field-help">Leave blank to use the configured quarantine route.</span></div>
                 <div id="rejectReasonGroup" class="form-field span-2 hidden"><label for="rejectReason">SMTP rejection reason</label><input id="rejectReason" maxlength="200" value="Message rejected by policy"></div>
                 <div id="bypassSpamGroup" class="check-field span-2"><input id="bypassSpam" type="checkbox"><label id="bypassSpamLabel" for="bypassSpam">Bypass the global spam action when this forward rule matches</label></div>
               </div>
@@ -926,7 +982,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
           </form>
 
           <div id="jsonEditor" class="hidden">
-            <div class="form-field"><label for="ruleJson">Complete rule JSON</label><textarea id="ruleJson" class="code" spellcheck="false" aria-describedby="jsonHelp"></textarea><span id="jsonHelp" class="field-help">Destinations must be configured in ALLOWED_FORWARD_DESTINATIONS.</span></div>
+            <div class="form-field"><label for="ruleJson">Complete rule JSON</label><textarea id="ruleJson" class="code" spellcheck="false" aria-describedby="jsonHelp"></textarea><span id="jsonHelp" class="field-help">Use a registered <code>mailboxId</code> for forward actions. Legacy destination addresses remain supported for existing rules.</span></div>
           </div>
           <p id="editorError" class="error" role="alert" aria-live="assertive"></p>
           <div class="editor-footer">
@@ -964,6 +1020,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       <div id="auditTab" class="hidden" role="tabpanel" aria-labelledby="auditTabButton">
         <section class="panel card" aria-labelledby="auditHeading">
           <div class="panel-header"><div><h2 id="auditHeading" tabindex="-1">Message audit</h2><p>Operational evidence for retained routing decisions. Email-forward statuses mean Cloudflare accepted the action, not final mailbox delivery.</p></div></div>
+          <div id="captureBanner" class="capture-banner hidden" role="status" aria-live="polite"></div>
           <div class="filter-bar">
             <div class="form-field"><label for="eventSearch">Search messages</label><input id="eventSearch" class="form-control" type="search" maxlength="200" placeholder="Subject, sender, recipient, rule…"></div>
             <div class="form-field"><label for="eventStatus">Status</label><select id="eventStatus" class="form-select"><option value="all">All statuses</option><option value="forwarded">Completed / email forwarded</option><option value="quarantined">Quarantined</option><option value="dropped">Dropped</option><option value="rejected">Rejected</option><option value="failed">Failed / needs review</option></select></div>
@@ -1035,6 +1092,24 @@ const ADMIN_HTML = String.raw`<!doctype html>
               </section>
             </div>
             <div class="setup-extensions">
+              <section class="setup-card mailbox-card" aria-labelledby="goreloMailboxesHeading">
+                <div class="setup-card-heading compact-card-heading">
+                  <div><h3 id="goreloMailboxesHeading">Gorelo mailboxes</h3><p>Name every Gorelo email destination once, choose a default, then route rules by mailbox instead of typing addresses.</p></div>
+                  <div class="toolbar"><button id="addMailbox" class="btn small" type="button" disabled>+ Mailbox</button></div>
+                </div>
+                <p class="setup-secret-note">Each address must also be present in <code>ALLOWED_FORWARD_DESTINATIONS</code>. Addresses are immutable after creation so saved rules cannot silently change destination.</p>
+                <p id="mailboxNotice" class="error" role="alert" aria-live="assertive"></p>
+                <div id="mailboxList" class="mailbox-list" aria-live="polite"></div>
+                <form id="mailboxForm" class="mailbox-form hidden" aria-labelledby="mailboxFormHeading">
+                  <div class="mailbox-form-heading"><div><h4 id="mailboxFormHeading">Add Gorelo mailbox</h4><p id="mailboxFormDescription">Register an allow-listed address for routing.</p></div><span id="mailboxFormMode" class="setup-state optional">New</span></div>
+                  <div class="form-field"><label for="mailboxName">Mailbox name</label><input id="mailboxName" maxlength="120" autocomplete="off" required placeholder="Service desk"></div>
+                  <div class="form-field"><label for="mailboxAddress">Gorelo email address</label><input id="mailboxAddress" type="email" maxlength="254" autocomplete="off" required placeholder="tickets@example.gorelo.com"><span class="field-help">Add the normalized address to the deployment allow-list before saving.</span></div>
+                  <div class="inline-check"><input id="mailboxEnabled" type="checkbox" checked><label for="mailboxEnabled">Enable this mailbox for routing</label></div>
+                  <p id="mailboxFormError" class="error" role="alert" aria-live="assertive"></p>
+                  <div class="form-actions"><button id="cancelMailbox" class="btn small" type="button">Cancel</button><button id="saveMailbox" class="btn btn-primary primary small" type="submit">Save mailbox</button></div>
+                </form>
+              </section>
+
               <section class="setup-card" aria-labelledby="clientDirectoryHeading">
                 <div class="setup-card-heading compact-card-heading">
                   <div><h3 id="clientDirectoryHeading">Client directory</h3><p>Import Gorelo clients, then assign every exact source name used for each customer.</p></div>
@@ -1098,13 +1173,55 @@ const ADMIN_HTML = String.raw`<!doctype html>
         <p id="reviewDialogDescription"></p>
       </div>
       <div class="dialog-body">
-        <div id="reviewDestinationGroup" class="form-field"><label for="reviewDestination">Release destination</label><input id="reviewDestination" class="form-control" type="email" required><span class="field-help">The Worker validates this destination against the server-side allow-list.</span></div>
+        <div id="reviewMailboxGroup" class="form-field"><label for="reviewMailboxId">Release to Gorelo mailbox</label><select id="reviewMailboxId" class="form-select" required><option value="">Select a mailbox</option></select><span class="field-help">Only enabled, allow-listed mailboxes can receive a released message.</span></div>
         <div class="form-field"><label for="reviewNote">Review note</label><textarea id="reviewNote" class="form-control" maxlength="500" placeholder="Optional reason or handoff note"></textarea></div>
         <p id="reviewDialogError" class="error" role="alert" aria-live="assertive"></p>
       </div>
       <div class="dialog-footer">
         <button id="reviewCancel" class="btn" type="button">Cancel</button>
         <button id="reviewConfirm" class="btn btn-primary primary" type="submit">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="parserRuleDialog" class="review-dialog parser-rule-dialog" aria-labelledby="parserRuleDialogTitle" aria-describedby="parserRuleDialogDescription">
+    <form id="parserRuleForm">
+      <div class="dialog-header">
+        <h2 id="parserRuleDialogTitle">Create a parser rule</h2>
+        <p id="parserRuleDialogDescription">Start with this audited email, then teach the values that change from message to message.</p>
+      </div>
+      <div class="dialog-body">
+        <div id="parserSampleSummary" class="parser-sample-summary" aria-live="polite"></div>
+        <p id="parserBodyStatus" class="parser-body-status"></p>
+        <div id="parserCaptureActions" class="parser-capture-actions hidden">
+          <div class="parser-capture-config">
+            <p id="parserCaptureHelp">The retained audit has no message body. Arm a short-lived capture for the next matching email.</p>
+            <div class="parser-capture-options">
+              <div class="form-field"><label for="captureSenderMode">Sender match</label><select id="captureSenderMode"><option value="address">Exact sender address</option><option value="domain">Same sender domain</option><option value="any">Any sender</option></select></div>
+              <div class="form-field"><label for="captureSubjectContains">Subject must contain</label><input id="captureSubjectContains" maxlength="200" autocomplete="off" placeholder="Optional exact text"></div>
+            </div>
+            <p class="field-help">Only messages Cloudflare marks forwardable and this policy classifies as non-spam can be captured. Sender matching narrows the window; it does not replace SPF, DKIM, or DMARC.</p>
+          </div>
+          <button id="captureNextEmail" class="btn small" type="button">Capture next matching email</button>
+        </div>
+        <fieldset class="outcome-fieldset">
+          <legend>What should matching emails do?</legend>
+          <div class="outcome-options">
+            <label class="outcome-card"><input type="radio" name="parserOutcome" value="forward" checked><span><strong>Forward email</strong><span>Send the original email to a named Gorelo mailbox.</span></span></label>
+            <label class="outcome-card"><input type="radio" name="parserOutcome" value="forward_webhook"><span><strong>Forward + webhook</strong><span>Forward the original and send selected values as signed JSON.</span></span></label>
+            <label class="outcome-card"><input type="radio" name="parserOutcome" value="create_ticket"><span><strong>Create ticket via API</strong><span>Build a structured Gorelo ticket from selected values.</span></span></label>
+            <label class="outcome-card"><input type="radio" name="parserOutcome" value="create_alert"><span><strong>Create alert via API</strong><span>Build a structured Gorelo alert associated with a client or asset.</span></span></label>
+          </div>
+        </fieldset>
+        <div id="parserMailboxGroup" class="form-field parser-route-field">
+          <label for="parserMailboxId">Gorelo mailbox</label>
+          <select id="parserMailboxId"><option value="">Follow the default Gorelo mailbox</option></select>
+          <span class="field-help">Following the default keeps this rule attached to whichever mailbox is marked default later. Choosing a named mailbox pins the rule to it.</span>
+        </div>
+        <p id="parserRuleError" class="error" role="alert" aria-live="assertive"></p>
+      </div>
+      <div class="dialog-footer">
+        <button id="cancelParserRule" class="btn" type="button">Cancel</button>
+        <button id="continueParserRule" class="btn btn-primary primary" type="submit">Create disabled draft</button>
       </div>
     </form>
   </dialog>
@@ -1140,7 +1257,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
             <div><h3 id="trainerSampleHeading">Sample email</h3><p>Select text in any field below. The blue browser selection is the value the parser will learn.</p></div>
             <button id="useDryRunSample" class="btn small" type="button">Use Dry-run sample</button>
           </div>
-          <p class="trainer-privacy">This sample is used only for the current preview. It is never saved with the rule or sent to Gorelo or a webhook.</p>
+          <p id="trainerPrivacy" class="trainer-privacy">This sample is used only for the current preview. It is never saved with the rule or sent to Gorelo or a webhook.</p>
           <div class="trainer-addresses">
             <div class="form-field"><label for="trainerFrom">From</label><input id="trainerFrom" data-trainer-source="from" maxlength="320" autocomplete="off" spellcheck="false" placeholder="alerts@vendor.example"></div>
             <div class="form-field"><label for="trainerTo">To</label><input id="trainerTo" data-trainer-source="to" maxlength="320" autocomplete="off" spellcheck="false" placeholder="support@example.net"></div>
@@ -1230,6 +1347,12 @@ const ADMIN_HTML = String.raw`<!doctype html>
     const CLIENT_DIRECTORY_PAGE_SIZE = 500;
     const CLIENT_DIRECTORY_MAX_CLIENTS = 5000;
     const CLIENT_DIRECTORY_RENDER_LIMIT = 100;
+    let goreloMailboxes = [];
+    let goreloMailboxDefaultId = null;
+    let goreloMailboxSettingsVersion = null;
+    let goreloMailboxesLoaded = false;
+    let goreloMailboxesLoading = false;
+    let editingMailboxId = null;
     let webhooks = [];
     let webhookCapability = null;
     let webhooksLoaded = false;
@@ -1259,13 +1382,21 @@ const ADMIN_HTML = String.raw`<!doctype html>
     let trainerInvoker = null;
     let trainerRestoreFocus = true;
     let trainerRequestVersion = 0;
+    let trainerSampleMode = "manual";
+    let parserRuleSample = null;
+    let parserRuleEvent = null;
+    let parserRuleInvoker = null;
+    let parserRuleRestoreFocus = true;
+    let activeParserCapture = null;
+    let capturePollTimer = null;
+    let captureRequestVersion = 0;
     let lastGoreloTemplateTarget = null;
     const goreloCatalogs = new Map();
     const goreloCatalogLoads = new Map();
     let goreloActionPreferences = null;
     const byId = (id) => document.getElementById(id);
     const templates = {
-      route: { name:"Route monitoring vendor", description:"Known vendor alerts to a Gorelo address", priority:100, enabled:true, match:"all", conditions:[{field:"from_domain",operator:"equals",value:"vendor.example",caseSensitive:false}], action:{type:"forward",bypassSpam:false} },
+      route: { name:"Route monitoring vendor", description:"Known vendor alerts to the default Gorelo mailbox", priority:100, enabled:true, match:"all", conditions:[{field:"from_domain",operator:"equals",value:"vendor.example",caseSensitive:false}], action:{type:"forward",bypassSpam:false} },
       drop: { name:"Drop blocked sender", description:"High-confidence sender block", priority:10, enabled:true, match:"all", conditions:[{field:"from",operator:"equals",value:"spam@example.net",caseSensitive:false}], action:{type:"drop"} },
       quarantine: { name:"Quarantine executable attachments", description:"Hold messages containing executable-looking attachment names", priority:10, enabled:true, match:"all", conditions:[{field:"attachment_name",operator:"ends_with",value:".exe",caseSensitive:false}], action:{type:"quarantine"} }
     };
@@ -1471,10 +1602,17 @@ const ADMIN_HTML = String.raw`<!doctype html>
       setText("spamPostureLabel",runtimeConfig?"Global spam action · threshold "+runtimeConfig.spamThreshold:"Loading spam policy");
       if (lastRefresh) setText("lastRefreshLabel","Ready · refreshed "+lastRefresh.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}));
     }
+    function mailboxById(id) { return goreloMailboxes.find((mailbox)=>mailbox.id===id); }
+    function defaultGoreloMailbox() { return mailboxById(goreloMailboxDefaultId)||goreloMailboxes.find((mailbox)=>mailbox.isDefault)||null; }
+    function mailboxRouteLabel(action) {
+      if (action.mailboxId) { const mailbox=mailboxById(action.mailboxId); return mailbox?mailbox.name+" · "+mailbox.address:"Unavailable mailbox · "+action.mailboxId; }
+      if (action.destination) return action.destination+" · legacy address";
+      const mailbox=defaultGoreloMailbox(); return mailbox?mailbox.name+" · "+mailbox.address:"default Gorelo mailbox";
+    }
     function actionLabel(action) {
-      if (action.type === "forward") return action.destination ? "Forward → "+action.destination : "Forward → default Gorelo route";
+      if (action.type === "forward") return "Forward → "+mailboxRouteLabel(action);
       if (action.type === "forward_webhook") {
-        const forward=action.destination?"Forward → "+action.destination:"Forward → default Gorelo route"; const registered=webhooks.find((item)=>item.id===action.webhookDestinationId); const webhookName=registered?.name||action.webhookDestinationId||"unavailable destination"; const fieldCount=Array.isArray(action.fields)?action.fields.length:0;
+        const forward="Forward → "+mailboxRouteLabel(action); const registered=webhooks.find((item)=>item.id===action.webhookDestinationId); const webhookName=registered?.name||action.webhookDestinationId||"unavailable destination"; const fieldCount=Array.isArray(action.fields)?action.fields.length:0;
         return forward+" · Signed webhook → "+webhookName+" · "+fieldCount+" field"+(fieldCount===1?"":"s");
       }
       if (action.type === "create_ticket" || action.type === "create_alert") {
@@ -1746,11 +1884,14 @@ const ADMIN_HTML = String.raw`<!doctype html>
     }
     function renderTemplateTrainer() { renderTrainerSelection(); renderTrainerPreview(); renderTrainerCaptures(); updateTrainerControls(); }
     function resetTemplateTrainer() {
-      trainerRequestVersion+=1; trainerSelection=null; trainerCaptures=[]; Object.values(trainerSourceControls).forEach((id)=>{ byId(id).value=""; }); byId("trainerKey").value=""; clearError("trainerError"); setBusy(byId("createTrainerVariable"),false); renderTemplateTrainer();
+      trainerRequestVersion+=1; trainerSelection=null; trainerCaptures=[]; trainerSampleMode="manual"; Object.values(trainerSourceControls).forEach((id)=>{ byId(id).value=""; byId(id).readOnly=false; }); byId("useDryRunSample").classList.remove("hidden"); setText("trainerPrivacy","This sample is used only for the current preview. It is never saved with the rule or sent to Gorelo or a webhook."); byId("trainerKey").value=""; clearError("trainerError"); setBusy(byId("createTrainerVariable"),false); renderTemplateTrainer();
     }
-    function trainerHasWork() { return Boolean(trainerCaptures.length||trainerSelection||byId("trainerKey").value.trim()||Object.values(trainerSourceControls).some((id)=>byId(id).value.length)); }
-    function openTemplateTrainer(invoker) {
-      if (!mappedActionTypes.has(byId("actionType").value)) return; resetTemplateTrainer(); trainerInvoker=invoker||document.activeElement; trainerRestoreFocus=true; byId("templateTrainerDialog").showModal(); byId("trainerBody").focus();
+    function trainerHasWork() { return Boolean(trainerCaptures.length||trainerSelection||byId("trainerKey").value.trim()||((trainerSampleMode==="manual"||trainerSampleMode==="dry_run")&&Object.values(trainerSourceControls).some((id)=>byId(id).value.length))); }
+    function loadTrainerSample(sample) {
+      trainerSampleMode="audit"; trainerSelection=null; trainerCaptures=[]; byId("trainerFrom").value=String(sample?.from||"").slice(0,320); byId("trainerTo").value=String(sample?.to||"").slice(0,320); byId("trainerSubject").value=String(sample?.subject||"").slice(0,998); byId("trainerBody").value=String(sample?.bodyText||"").slice(0,50000); Object.values(trainerSourceControls).forEach((id)=>{ byId(id).readOnly=true; }); byId("useDryRunSample").classList.add("hidden"); const source=sample?.body?.source; const expiry=sample?.body?.expiresAt?" It expires "+formatDate(sample.body.expiresAt)+".":""; const sourceCopy=source==="temporary_capture"?"This plain-text sample was captured temporarily for parser training.":source==="retained_original"?"This plain-text sample was derived from the retained original.":source==="audit_preview"?"This is the bounded plain-text preview retained in the audit.":"Only the audited envelope and subject are available."; setText("trainerPrivacy",sourceCopy+expiry+" The sample is never saved with the rule or sent to Gorelo or a webhook."); byId("trainerKey").value=""; clearError("trainerError"); renderTemplateTrainer();
+    }
+    function openTemplateTrainer(invoker,sample) {
+      if (!mappedActionTypes.has(byId("actionType").value)) return; resetTemplateTrainer(); if (sample) loadTrainerSample(sample); trainerInvoker=invoker||document.activeElement; trainerRestoreFocus=true; byId("templateTrainerDialog").showModal(); (sample?.bodyText?byId("trainerBody"):byId("trainerSubject")).focus();
     }
     function closeTemplateTrainer(force=false,restore=true) {
       if (!force&&trainerHasWork()&&!confirm("Discard this sample and its taught variables?")) return false; trainerRestoreFocus=restore; if (byId("templateTrainerDialog").open) byId("templateTrainerDialog").close(); else { resetTemplateTrainer(); trainerInvoker=null; } return true;
@@ -1763,7 +1904,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       const source=control.dataset.trainerSource; const before=trainerCaptures.length; trainerRequestVersion+=1; trainerCaptures=trainerCaptures.filter((capture)=>capture.source!==source); if (trainerSelection?.source===source) trainerSelection=null; if (trainerCaptures.length<before) showError("trainerError",new Error(trainerSourceLabels[source]+" changed, so its learned variables were cleared. Select them again.")); else clearError("trainerError"); renderTemplateTrainer();
     }
     function loadDryRunIntoTrainer() {
-      if (trainerHasWork()&&!confirm("Replace this sample and clear its taught variables?")) return; trainerRequestVersion+=1; trainerSelection=null; trainerCaptures=[]; byId("trainerFrom").value=byId("testFrom").value.slice(0,320); byId("trainerTo").value=byId("testTo").value.slice(0,320); byId("trainerSubject").value=byId("testSubject").value.slice(0,998); byId("trainerBody").value=byId("testBody").value.slice(0,50000); byId("trainerKey").value=""; clearError("trainerError"); renderTemplateTrainer(); showToast("Dry-run sample loaded. Highlight the first changing value."); byId("trainerBody").focus();
+      if (trainerHasWork()&&!confirm("Replace this sample and clear its taught variables?")) return; trainerRequestVersion+=1; trainerSelection=null; trainerCaptures=[]; trainerSampleMode="dry_run"; Object.values(trainerSourceControls).forEach((id)=>{ byId(id).readOnly=false; }); byId("trainerFrom").value=byId("testFrom").value.slice(0,320); byId("trainerTo").value=byId("testTo").value.slice(0,320); byId("trainerSubject").value=byId("testSubject").value.slice(0,998); byId("trainerBody").value=byId("testBody").value.slice(0,50000); setText("trainerPrivacy","This Dry-run sample remains only in this browser session. It is never saved with the rule or sent to Gorelo or a webhook."); byId("trainerKey").value=""; clearError("trainerError"); renderTemplateTrainer(); showToast("Dry-run sample loaded. Highlight the first changing value."); byId("trainerBody").focus();
     }
     async function createTrainerVariable() {
       clearError("trainerError"); const selection=trainerSelection?{...trainerSelection}:null; const key=byId("trainerKey").value.trim();
@@ -1934,12 +2075,13 @@ const ADMIN_HTML = String.raw`<!doctype html>
       const defaults=[{key:"subject",source:"subject",required:true,maxCharacters:998}]; if (type==="create_alert") defaults.push({key:"resource",source:"subject",required:true,maxCharacters:998}); else defaults.push({key:"details",source:"body_text",maxCharacters:4000}); return defaults;
     }
     function updateActionFields() {
-      const type=byId("actionType").value; const isWebhook=type==="forward_webhook"; const isGorelo=isGoreloActionType(type); const forwards=type==="forward"||isWebhook; const mapped=mappedActionTypes.has(type); const supportsDestination=forwards||type==="quarantine";
-      byId("actionDestinationGroup").classList.toggle("hidden",!supportsDestination); byId("actionDestination").disabled=!supportsDestination; byId("rejectReasonGroup").classList.toggle("hidden",type!=="reject"); byId("rejectReason").disabled=type!=="reject";
+      const type=byId("actionType").value; const isWebhook=type==="forward_webhook"; const isGorelo=isGoreloActionType(type); const forwards=type==="forward"||isWebhook; const mapped=mappedActionTypes.has(type);
+      byId("actionMailboxGroup").classList.toggle("hidden",!forwards); byId("actionMailboxId").disabled=!forwards; byId("quarantineDestinationGroup").classList.toggle("hidden",type!=="quarantine"); byId("quarantineDestination").disabled=type!=="quarantine"; byId("rejectReasonGroup").classList.toggle("hidden",type!=="reject"); byId("rejectReason").disabled=type!=="reject";
       const canBypass=forwards||isGorelo; byId("bypassSpamGroup").classList.toggle("hidden",!canBypass); byId("bypassSpam").disabled=!canBypass; setText("bypassSpamLabel",isWebhook?"Bypass the global spam action when this forward + webhook rule matches":isGorelo?"Bypass the global spam action when this API-only Gorelo rule matches":"Bypass the global spam action when this forward rule matches");
       const webhookConfig=byId("webhookActionConfig"); webhookConfig.classList.toggle("hidden",!isWebhook); webhookConfig.querySelectorAll("input,select,button").forEach((control)=>{ control.disabled=!isWebhook; }); byId("ruleWebhookDestination").required=isWebhook;
       const mappedConfig=byId("mappedActionConfig"); mappedConfig.classList.toggle("hidden",!mapped); mappedConfig.querySelectorAll("input,select,textarea,button").forEach((control)=>{ control.disabled=!mapped; }); setText("extractionHeading",isWebhook?"Extract webhook fields":"Extract Gorelo fields"); setText("extractionDescription",isWebhook?"Teach the parser from an email or add bounded fields manually. Each key becomes a signed JSON value.":"Teach the parser from an email and reuse the learned variables in Gorelo templates. Required values fail safely before any API request.");
       if (mapped&&!byId("webhookFields").children.length) defaultGoreloFields(isGorelo?type:"forward_webhook").forEach(addWebhookFieldRow); renumberWebhookFields(); updateClientLinkageFields(); updateGoreloClientLinkage();
+      if (forwards) { populateActionMailboxSelect(byId("actionMailboxId").value); void loadMailboxes(); }
       if (isWebhook) { populateWebhookDestinationSelect(); void ensureWebhookActionDestinations(); } else { byId("ruleWebhookDestination").required=false; }
       const goreloConfig=byId("goreloActionConfig"); goreloConfig.classList.toggle("hidden",!isGorelo); byId("refreshGoreloCatalogs").disabled=!isGorelo; const ticket=type==="create_ticket"; const alert=type==="create_alert"; byId("ticketActionFields").classList.toggle("hidden",!ticket); byId("ticketActionFields").querySelectorAll("input,textarea,select,button").forEach((control)=>{ control.disabled=!ticket; }); byId("alertActionFields").classList.toggle("hidden",!alert); byId("alertActionFields").querySelectorAll("input,textarea,select,button").forEach((control)=>{ control.disabled=!alert; }); updateGoreloClientLinkage();
       if (isGorelo) { populateGoreloCatalogControls(); updateGoreloCatalogStatus(); void ensureGoreloActionCatalogs(); }
@@ -1953,7 +2095,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     function populateBuilder(rule) {
       byId("ruleName").value=rule.name||""; byId("ruleDescription").value=rule.description||""; byId("rulePriority").value=String(rule.priority??100); byId("ruleEnabled").checked=rule.enabled!==false; byId("ruleMatch").value=rule.match||"all";
       byId("conditions").textContent=""; (rule.conditions&&rule.conditions.length?rule.conditions:[{field:"subject",operator:"contains",value:"",caseSensitive:false}]).forEach(addConditionRow);
-      const action=rule.action||{type:"forward"}; byId("actionType").value=action.type; byId("actionDestination").value=action.destination||""; byId("rejectReason").value=action.reason||"Message rejected by policy"; byId("bypassSpam").checked=Boolean(action.bypassSpam);
+      const action=rule.action||{type:"forward"}; byId("actionType").value=action.type; populateActionMailboxSelect(action.mailboxId||(action.type!=="quarantine"&&action.destination?"legacy:"+action.destination:"")); byId("quarantineDestination").value=action.type==="quarantine"?action.destination||"":""; byId("rejectReason").value=action.reason||"Message rejected by policy"; byId("bypassSpam").checked=Boolean(action.bypassSpam);
       byId("webhookFields").textContent=""; webhookActionDestinationPreference=action.type==="forward_webhook"?action.webhookDestinationId||"":""; byId("webhookEventType").value=action.type==="forward_webhook"?action.eventType||"mail.parsed":"mail.parsed";
       if (mappedActionTypes.has(action.type)) (Array.isArray(action.fields)&&action.fields.length?action.fields:defaultGoreloFields(action.type)).forEach(addWebhookFieldRow);
       byId("clientAliasScope").value=action.type==="forward_webhook"?action.clientAliasScope||"global":"global"; populateGoreloActionForm(action); updateClientIdentityOptions(action.type==="forward_webhook"?action.clientIdentityField||"":""); if (goreloActionTypes.has(action.type)) populateGoreloIdentityOptions(action.clientIdentityField||""); updateActionFields();
@@ -1969,7 +2111,8 @@ const ADMIN_HTML = String.raw`<!doctype html>
       else if (type === "quarantine") action={type:"quarantine"};
       else if (type === "drop") action={type:"drop"};
       else { const reason=byId("rejectReason").value.trim(); if(!reason) throw new Error("A rejection action needs an SMTP reason."); action={type:"reject",reason}; }
-      const destination=byId("actionDestination").value.trim(); if (destination && (type === "forward" || type === "forward_webhook" || type === "quarantine")) action.destination=destination;
+      if (type === "forward" || type === "forward_webhook") { const route=byId("actionMailboxId").value; if (route.startsWith("legacy:")) action.destination=route.slice(7); else if (route) action.mailboxId=route; }
+      if (type === "quarantine") { const destination=byId("quarantineDestination").value.trim(); if (destination) action.destination=destination; }
       return {name:byId("ruleName").value.trim(),description:byId("ruleDescription").value.trim(),priority,enabled:byId("ruleEnabled").checked,match:byId("ruleMatch").value,conditions:rows.map(readCondition),action};
     }
     function setEditorMode(mode) {
@@ -1984,18 +2127,18 @@ const ADMIN_HTML = String.raw`<!doctype html>
       } catch(error) { showError("editorError",error); }
     }
     function confirmDiscard() { return !editorDirty || confirm("Discard the unsaved rule changes?"); }
-    function openEditor(rule,invoker) {
+    function openEditor(rule,invoker,options={}) {
       if (!byId("editorCard").classList.contains("hidden") && !confirmDiscard()) return;
-      editingId=rule?.id||null; editorReturnFocus=invoker||document.activeElement; editorMode="builder"; lastGoreloTemplateTarget=null;
-      const input=deepCopy(rule?editable(rule):templates[byId("template").value]); populateBuilder(input); byId("ruleJson").value=JSON.stringify(input,null,2);
-      byId("editorTitle").textContent=rule?"Edit “"+rule.name+"”":"Create a routing rule";
-      byId("builderMode").setAttribute("aria-pressed","true"); byId("jsonMode").setAttribute("aria-pressed","false"); byId("ruleForm").classList.remove("hidden"); byId("jsonEditor").classList.add("hidden"); clearError("editorError"); editorDirty=false;
+      const existing=Boolean(rule?.id); editingId=existing?rule.id:null; editorReturnFocus=invoker||document.activeElement; editorMode="builder"; lastGoreloTemplateTarget=null;
+      const input=deepCopy(rule?(existing?editable(rule):rule):templates[byId("template").value]); populateBuilder(input); byId("ruleJson").value=JSON.stringify(input,null,2);
+      byId("editorTitle").textContent=existing?"Edit “"+rule.name+"”":options.generated?"Create parser rule from email":"Create a routing rule"; byId("generatedDraftBanner").classList.toggle("hidden",!options.generated);
+      byId("builderMode").setAttribute("aria-pressed","true"); byId("jsonMode").setAttribute("aria-pressed","false"); byId("ruleForm").classList.remove("hidden"); byId("jsonEditor").classList.add("hidden"); clearError("editorError"); editorDirty=Boolean(options.generated);
       byId("workspace").classList.add("editor-active"); byId("editorCard").classList.remove("hidden"); byId("editorTitle").focus(); byId("editorCard").scrollIntoView({block:"start"});
     }
     function closeEditor(force,restore=true) {
       if (!force && !confirmDiscard()) return false;
       if (byId("templateTrainerDialog").open) closeTemplateTrainer(true,false);
-      byId("workspace").classList.remove("editor-active"); byId("editorCard").classList.add("hidden"); editorDirty=false; editingId=null; lastGoreloTemplateTarget=null;
+      byId("workspace").classList.remove("editor-active"); byId("editorCard").classList.add("hidden"); byId("generatedDraftBanner").classList.add("hidden"); editorDirty=false; editingId=null; lastGoreloTemplateTarget=null;
       if (restore && editorReturnFocus && document.contains(editorReturnFocus)) editorReturnFocus.focus();
       return true;
     }
@@ -2086,7 +2229,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
         eventDetail("Decision",presentation.decisionLabel),eventDetail("Action status",presentation.statusLabel),eventDetail("Message size",formatBytes(event.rawSize)),
         eventDetail("Matched rule",event.matchedRuleName||event.matchedRuleId||"Global/default policy"),eventDetail("Destination",presentation.destinationLabel),eventDetail("Message ID",event.messageId)
       );
-      overview.append(overviewGrid); if (includeDeliveries&&audit.rawAvailable===true) { const actions=node("div",undefined,"review-actions"); const download=node("button","Download archived original (.eml)","btn small"); download.type="button"; download.setAttribute("aria-label","Download archived original message "+(event.subject||"")); download.onclick=()=>downloadAuditRaw(event,download); actions.append(download); overview.append(actions); } wrap.append(overview);
+      overview.append(overviewGrid); if (includeDeliveries) { const actions=node("div",undefined,"review-actions"); const create=node("button","Create rule from this email","btn btn-primary primary small"); create.type="button"; create.setAttribute("aria-label","Create a parser rule from "+(event.subject||"this audited email")); create.onclick=()=>openParserRuleFromAudit(event,create); actions.append(create); if (audit.rawAvailable===true) { const download=node("button","Download archived original (.eml)","btn small"); download.type="button"; download.setAttribute("aria-label","Download archived original message "+(event.subject||"")); download.onclick=()=>downloadAuditRaw(event,download); actions.append(download); } overview.append(actions); } wrap.append(overview);
 
       const analysis=reviewSection("Policy explanation");
       const threshold=audit.spamThreshold??runtimeConfig?.spamThreshold??"—";
@@ -2228,22 +2371,23 @@ const ADMIN_HTML = String.raw`<!doctype html>
       }
     }
     function scheduleQuarantineSearch() { if (quarantineSearchTimer!==null) clearTimeout(quarantineSearchTimer); quarantineSearchTimer=setTimeout(()=>{ quarantineSearchTimer=null; void loadQuarantine(); },250); }
-    function openReviewDialog(action,event) {
+    async function openReviewDialog(action,event) {
       const availability=actionAvailability(event);
       if (action==="release"&&!availability.canRelease) return;
       if (action==="dismiss"&&!availability.actionable) return;
+      if (action==="release") await loadMailboxes();
       reviewAction=action; reviewEvent=event; clearError("reviewDialogError"); byId("reviewNote").value="";
-      const release=action==="release"; byId("reviewDestinationGroup").classList.toggle("hidden",!release); byId("reviewDestination").required=release; byId("reviewDestination").value=release?(runtimeConfig?.defaultGoreloAddress||""):"";
+      const release=action==="release"; byId("reviewMailboxGroup").classList.toggle("hidden",!release); byId("reviewMailboxId").required=release; populateReviewMailboxSelect();
       setText("reviewDialogTitle",release?"Release to Gorelo?":"Mark as spam?");
       setText("reviewDialogDescription",(event.subject||"Message without subject")+" from "+(event.envelopeFrom||"unknown sender")+(release?" will be replayed to the selected allow-listed destination.":" will leave the active review queue and remain in the audit ledger."));
       const confirmButton=byId("reviewConfirm"); confirmButton.textContent=release?"Release message":"Mark as spam"; confirmButton.className=release?"btn btn-primary primary":"btn danger";
-      byId("reviewDialog").showModal(); (release?byId("reviewDestination"):byId("reviewNote")).focus();
+      byId("reviewDialog").showModal(); (release?byId("reviewMailboxId"):byId("reviewNote")).focus();
     }
     async function submitReviewAction() {
       if (!reviewAction||!reviewEvent||!byId("reviewActionForm").reportValidity()) return;
       clearError("reviewDialogError"); const id=eventKey(reviewEvent); const q=reviewEvent.quarantine||{};
       const body={version:Number(q.version||0),note:byId("reviewNote").value.trim()};
-      if (reviewAction==="release") body.destination=byId("reviewDestination").value.trim();
+      if (reviewAction==="release") body.mailboxId=byId("reviewMailboxId").value;
       const completedAction=reviewAction;
       try {
         await runBusy(byId("reviewConfirm"),reviewAction==="release"?"Releasing…":"Saving…",async()=>{
@@ -2274,10 +2418,83 @@ const ADMIN_HTML = String.raw`<!doctype html>
       } catch(error) { showError("eventsNotice",error); showToast(error.message,"error"); }
       finally { if (document.contains(button)) setBusy(button,false,""); }
     }
+    function validTrainingSampleResponse(data,eventId) {
+      const sample=data&&data.sample; const body=sample&&sample.body; const statuses=new Set(["complete","truncated","unavailable"]); const sources=new Set(["temporary_capture","retained_original","audit_preview","none"]); const text=(value,maximum)=>typeof value==="string"&&value.length<=maximum;
+      if (!sample||sample.eventId!==eventId||!text(sample.from,320)||!text(sample.to,320)||!text(sample.subject,998)||!text(sample.bodyText,50000)||!body||!statuses.has(body.status)||!sources.has(body.source)||(body.expiresAt!==undefined&&!text(body.expiresAt,100))||!text(sample.createdAt,100)||typeof data.canCaptureNext!=="boolean"||!Array.isArray(data.warnings)||!data.warnings.every((warning)=>warning&&text(warning.code,100))) throw new Error("The Worker returned an invalid parser training sample.");
+      return {sample,canCaptureNext:data.canCaptureNext,warnings:data.warnings};
+    }
+    async function fetchTrainingSample(eventId) { return validTrainingSampleResponse(await api("/api/v1/events/"+encodeURIComponent(eventId)+"/training-sample"),eventId); }
+    function validParserCapture(capture) {
+      const states=new Set(["pending","claimed","captured","cancelled","expired","failed"]); const senderModes=new Set(["any","address","domain"]); const privateKeys=new Set(["objectKey","sampleObjectKey","sha256","sampleSha256","sampleSize","claimEventId"]); const noPrivateKeys=!Object.keys(capture||{}).some((key)=>privateKeys.has(key));
+      return noPrivateKeys&&capture&&typeof capture.id==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(capture.id)&&states.has(capture.state)&&capture.match&&typeof capture.match.recipient==="string"&&senderModes.has(capture.match.senderMode)&&(capture.match.senderValue===undefined||typeof capture.match.senderValue==="string")&&(capture.match.subjectContains===undefined||typeof capture.match.subjectContains==="string")&&typeof capture.requestedBy==="string"&&typeof capture.waitExpiresAt==="string"&&typeof capture.sampleAvailable==="boolean"&&(capture.sampleExpiresAt===undefined||typeof capture.sampleExpiresAt==="string")&&(capture.capturedEventId===undefined||typeof capture.capturedEventId==="string")&&Number.isSafeInteger(capture.version)&&capture.version>=1&&typeof capture.createdAt==="string"&&typeof capture.updatedAt==="string";
+    }
+    function parserSampleSourceLabel(source) { if (source==="temporary_capture") return "Temporary capture"; if (source==="retained_original") return "Retained original"; if (source==="audit_preview") return "Audit preview"; return "Envelope only"; }
+    function renderParserRuleDialog() {
+      const data=parserRuleSample; const sample=data?.sample; const summary=byId("parserSampleSummary"); summary.textContent=""; if (!sample) { summary.append(node("p","Loading audited email…","retention-note")); return; }
+      [["From",sample.from||"Unknown sender"],["To",sample.to||"Unknown recipient"],["Subject",sample.subject||"(No subject)"],["Source",parserSampleSourceLabel(sample.body.source)]].forEach(([label,value])=>{ const line=node("div",undefined,"parser-sample-line"); line.append(node("strong",label),node("span",value)); summary.append(line); });
+      const status=byId("parserBodyStatus"); status.classList.toggle("warning",sample.body.status!=="complete"); if (sample.body.status==="complete") status.textContent="The normalized plain-text body is ready. Continue, then highlight changing values in the parser trainer."; else if (sample.body.status==="truncated") status.textContent="The available body is truncated. You can teach from the visible content or capture the next matching email for a fresh sample."; else status.textContent="This audit has no retained body. Envelope, sender, recipient, and subject can still seed a rule, or you can capture the next matching email.";
+      const captureActions=byId("parserCaptureActions"); const mayCapture=data.canCaptureNext&&sample.body.status!=="complete"; captureActions.classList.toggle("hidden",!mayCapture); const captureButton=byId("captureNextEmail"); if (mayCapture) {
+        const active=activeParserCapture?.sourceEventId===eventKey(parserRuleEvent||{})?activeParserCapture:null; const captureLocked=Boolean(active&&(active.state==="pending"||active.state==="claimed"||active.state==="captured")); byId("captureSenderMode").disabled=captureLocked; byId("captureSubjectContains").disabled=captureLocked; if (active&&(active.state==="pending"||active.state==="claimed")) { setText("parserCaptureHelp","Waiting for one matching email until "+formatDate(active.waitExpiresAt)+". Normal routing remains active."); captureButton.textContent="Waiting for email…"; captureButton.disabled=true; }
+        else if (active?.state==="captured"&&active.sampleAvailable) { setText("parserCaptureHelp","A fresh matching email has been captured and is ready to teach."); captureButton.textContent="Use captured email"; captureButton.disabled=false; }
+        else { setText("parserCaptureHelp",sample.body.status==="truncated"?"Capture one fresh matching email for up to 15 minutes. The sample is deleted within one hour.":"Wait up to 15 minutes for one matching email. Its plain text is retained for at most one hour."); captureButton.textContent="Capture next matching email"; captureButton.disabled=false; }
+      }
+      const outcome=byId("parserRuleForm").elements.parserOutcome.value; const forwards=outcome==="forward"||outcome==="forward_webhook"; byId("parserMailboxGroup").classList.toggle("hidden",!forwards); byId("parserMailboxId").disabled=!forwards; if (forwards) populateParserMailboxSelect();
+      clearError("parserRuleError");
+    }
+    async function openParserRuleFromAudit(event,invoker) {
+      const button=invoker||document.activeElement; clearError("eventsNotice"); if (button instanceof HTMLButtonElement) setBusy(button,true,"Loading sample…");
+      try { await Promise.allSettled([loadMailboxes(),loadWebhooks()]); const training=await fetchTrainingSample(eventKey(event)); parserRuleEvent=event; parserRuleSample=training; parserRuleInvoker=button; parserRuleRestoreFocus=true; byId("parserRuleForm").elements.parserOutcome.value="forward"; populateParserMailboxSelect(""); resetParserCaptureOptions(training.sample); renderParserRuleDialog(); if (!byId("parserRuleDialog").open) byId("parserRuleDialog").showModal(); byId("continueParserRule").focus(); }
+      catch(error) { showError("eventsNotice",error); showToast(error.message,"error"); }
+      finally { if (button instanceof HTMLButtonElement&&document.contains(button)) setBusy(button,false,""); }
+    }
+    function closeParserRuleDialog(restore=true) { parserRuleRestoreFocus=restore; if (byId("parserRuleDialog").open) byId("parserRuleDialog").close(); }
+    function resetParserCaptureOptions(sample) { const sender=String(sample?.from||"").trim().toLowerCase(); byId("captureSenderMode").value=sender?"address":"any"; byId("captureSubjectContains").value=""; byId("captureSenderMode").disabled=false; byId("captureSubjectContains").disabled=false; }
+    function stopCapturePoll() { captureRequestVersion+=1; if (capturePollTimer!==null) clearTimeout(capturePollTimer); capturePollTimer=null; }
+    function scheduleCapturePoll() { if (!activeParserCapture||!(activeParserCapture.state==="pending"||activeParserCapture.state==="claimed")||!token) return; if (capturePollTimer!==null) clearTimeout(capturePollTimer); const version=captureRequestVersion; capturePollTimer=setTimeout(()=>{ capturePollTimer=null; if (version===captureRequestVersion) void pollParserCapture(); },3000); }
+    function renderCaptureBanner() {
+      const banner=byId("captureBanner"); banner.textContent=""; const capture=activeParserCapture; if (!capture) { banner.classList.add("hidden"); return; } banner.classList.remove("hidden"); banner.classList.toggle("warning",capture.state==="failed"||capture.state==="expired"); const copy=node("div",undefined,"capture-banner-copy"); const actions=node("div",undefined,"capture-banner-actions");
+      if (capture.state==="pending"||capture.state==="claimed") { copy.append(node("strong",capture.state==="claimed"?"Matching email received — preparing sample":"Waiting for a parser sample"),node("span",capture.match.recipient+" · "+(capture.match.senderMode==="any"?"any sender":capture.match.senderMode+" "+capture.match.senderValue)+" · expires "+formatDate(capture.waitExpiresAt))); const cancel=node("button","Cancel capture","btn small"); cancel.type="button"; cancel.onclick=()=>cancelActiveParserCapture(cancel); actions.append(cancel); }
+      else if (capture.state==="captured"&&capture.sampleAvailable&&capture.capturedEventId) { copy.append(node("strong","Parser sample captured"),node("span","The normalized plain-text sample is available until "+formatDate(capture.sampleExpiresAt)+". Normal routing was unchanged.")); const teach=node("button","Create rule from captured email","btn btn-primary primary small"); teach.type="button"; teach.onclick=()=>teachFromCapturedEmail(teach); const hide=node("button","Hide","btn small"); hide.type="button"; hide.onclick=()=>{ activeParserCapture=null; renderCaptureBanner(); renderParserRuleDialog(); }; actions.append(teach,hide); }
+      else { const label=capture.state==="cancelled"?"Parser capture cancelled":capture.state==="expired"?"Parser capture expired":"Parser capture unavailable"; copy.append(node("strong",label),node("span",capture.safeErrorCode?"Safe error code: "+capture.safeErrorCode:"No training sample was retained.")); const hide=node("button","Hide","btn small"); hide.type="button"; hide.onclick=()=>{ activeParserCapture=null; renderCaptureBanner(); renderParserRuleDialog(); }; actions.append(hide); }
+      banner.append(copy,actions);
+    }
+    async function loadParserCaptures() {
+      try { const data=await api("/api/v1/parser-captures"); if (!Array.isArray(data.captures)||!data.captures.every(validParserCapture)) throw new Error("The Worker returned an invalid parser capture list."); const now=Date.now(); activeParserCapture=data.captures.find((capture)=>capture.state==="pending"||capture.state==="claimed")||data.captures.find((capture)=>capture.state==="captured"&&capture.sampleAvailable&&Date.parse(capture.sampleExpiresAt||"")>now)||null; renderCaptureBanner(); renderParserRuleDialog(); stopCapturePoll(); scheduleCapturePoll(); }
+      catch(error) { activeParserCapture=null; renderCaptureBanner(); if (token) showError("eventsNotice",error); }
+    }
+    async function startParserCapture() {
+      const event=parserRuleEvent; const sample=parserRuleSample?.sample; if (!event||!sample||!parserRuleSample.canCaptureNext) return; clearError("parserRuleError"); const sender=String(sample.from||event.envelopeFrom||"").trim().toLowerCase(); const at=sender.lastIndexOf("@"); const domain=at>0?sender.slice(at+1):""; let senderMode=byId("captureSenderMode").value; if (senderMode==="domain"&&!domain) senderMode=sender?"address":"any"; const match={recipient:String(sample.to||event.envelopeTo||"").trim().toLowerCase(),senderMode}; if (senderMode!=="any") match.senderValue=senderMode==="domain"?domain:sender; const subjectContains=byId("captureSubjectContains").value.trim(); if (subjectContains) match.subjectContains=subjectContains;
+      try { await runBusy(byId("captureNextEmail"),"Arming capture…",async()=>{ const data=await api("/api/v1/parser-captures",{method:"POST",body:JSON.stringify({sourceEventId:eventKey(event),match,expiresInSeconds:900})}); if (!validParserCapture(data&&data.capture)) throw new Error("The Worker returned an invalid parser capture."); activeParserCapture=data.capture; }); stopCapturePoll(); renderCaptureBanner(); renderParserRuleDialog(); scheduleCapturePoll(); showToast("Capture armed. Send the next representative email within 15 minutes."); }
+      catch(error) { if (error&&error.status===409) await loadParserCaptures(); showError("parserRuleError",error); showToast(error.message,"error"); }
+    }
+    async function pollParserCapture() {
+      const capture=activeParserCapture; if (!capture) return; const version=captureRequestVersion;
+      try { const data=await api("/api/v1/parser-captures/"+encodeURIComponent(capture.id)); if (version!==captureRequestVersion||!validParserCapture(data&&data.capture)) return; const previous=capture.state; activeParserCapture=data.capture; renderCaptureBanner(); renderParserRuleDialog(); if (data.capture.state==="captured"&&previous!=="captured") showToast("Matching email captured. The parser sample is ready."); scheduleCapturePoll(); }
+      catch(error) { if (version!==captureRequestVersion) return; showError("eventsNotice",error); scheduleCapturePoll(); }
+    }
+    async function cancelActiveParserCapture(button) {
+      const capture=activeParserCapture; if (!capture||(capture.state!=="pending"&&capture.state!=="claimed")) return;
+      try { await runBusy(button,"Cancelling…",async()=>{ const data=await api("/api/v1/parser-captures/"+encodeURIComponent(capture.id)+"/cancel",{method:"POST",body:JSON.stringify({version:capture.version})}); if (!validParserCapture(data&&data.capture)) throw new Error("The Worker returned an invalid parser capture."); activeParserCapture=data.capture; }); stopCapturePoll(); renderCaptureBanner(); renderParserRuleDialog(); showToast("Parser capture cancelled"); }
+      catch(error) { if (error&&error.status===409) await loadParserCaptures(); showError("eventsNotice",error); showToast(error.message,"error"); }
+    }
+    async function teachFromCapturedEmail(button) {
+      const eventId=activeParserCapture?.capturedEventId; if (!eventId) return; clearError("eventsNotice");
+      try { await runBusy(button,"Loading…",async()=>{ const [eventData,training]=await Promise.all([api("/api/v1/events/"+encodeURIComponent(eventId)),fetchTrainingSample(eventId)]); if (!auditObject(eventData&&eventData.event)) throw new Error("The Worker returned an invalid captured audit event."); parserRuleEvent=eventData.event; parserRuleSample=training; parserRuleInvoker=button; parserRuleRestoreFocus=true; byId("parserRuleForm").elements.parserOutcome.value="forward"; populateParserMailboxSelect(""); resetParserCaptureOptions(training.sample); renderParserRuleDialog(); if (!byId("parserRuleDialog").open) byId("parserRuleDialog").showModal(); }); }
+      catch(error) { showError("eventsNotice",error); showToast(error.message,"error"); }
+    }
+    function parserRuleConditions(event,sample) {
+      const conditions=[]; const recipient=String(sample.to||event.envelopeTo||"").trim().toLowerCase(); if (recipient) conditions.push({field:"to",operator:"equals",value:recipient,caseSensitive:false}); const sender=String(sample.from||event.envelopeFrom||"").trim().toLowerCase(); const at=sender.lastIndexOf("@"); const domain=at>0?sender.slice(at+1):""; if (domain) conditions.push({field:"from_domain",operator:"equals",value:domain,caseSensitive:false}); else if (sender) conditions.push({field:"from",operator:"equals",value:sender,caseSensitive:false}); return conditions.length?conditions:[{field:"subject",operator:"contains",value:String(sample.subject||event.subject||"message").slice(0,512),caseSensitive:false}];
+    }
+    function parserDraftAction(type) {
+      const mailboxId=byId("parserMailboxId").value; if (type==="forward") return {type,bypassSpam:false,...(mailboxId?{mailboxId}:{})}; if (type==="forward_webhook") return {type,bypassSpam:false,...(mailboxId?{mailboxId}:{}),webhookDestinationId:webhooks.find((webhook)=>webhook.enabled)?.id||"",eventType:"mail.parsed",fields:defaultGoreloFields(type)}; if (type==="create_ticket") return {type,bypassSpam:false,fields:defaultGoreloFields(type),titleTemplate:"{{subject}}",descriptionTemplate:"{{details}}",createdByNameTemplate:"Gorelo Router",sendTicketCreatedEmail:false,isUnread:true}; return {type:"create_alert",bypassSpam:false,fields:defaultGoreloFields("create_alert"),nameTemplate:"{{subject}}",resourceTemplate:"{{resource}}",descriptionTemplate:"",severity:3};
+    }
+    function createParserRuleDraft() {
+      if (!parserRuleEvent||!parserRuleSample?.sample) return; const event=parserRuleEvent; const sample=parserRuleSample.sample; const type=byId("parserRuleForm").elements.parserOutcome.value; const cleanSubject=String(sample.subject||event.subject||"matching email").replace(/[\u0000-\u001f\u007f]/g," ").replace(/\s+/g," ").trim(); const draft={name:("Parse "+cleanSubject).slice(0,120),description:"Drafted from audited email received "+formatDate(event.createdAt)+". Review before enabling.",priority:100,enabled:false,match:"all",conditions:parserRuleConditions(event,sample),action:parserDraftAction(type)}; const invoker=parserRuleInvoker; const training=deepCopy(sample); parserRuleRestoreFocus=false; closeParserRuleDialog(false); showTab("rules",false); openEditor(draft,invoker,{generated:true}); if (mappedActionTypes.has(type)) setTimeout(()=>openTemplateTrainer(byId("teachParser"),training),0); else showToast("Disabled forwarding draft created. Review its mailbox and conditions before saving.");
+    }
     function renderAuditDetail(container,event) { container.textContent=""; container.append(buildReviewBody(event,true)); }
     async function toggleAuditEvent(event,button,body) {
       const opening=button.getAttribute("aria-expanded")!=="true";
-      button.setAttribute("aria-expanded",String(opening)); body.classList.toggle("hidden",!opening); if (!opening) return;
+      button.setAttribute("aria-expanded",String(opening)); button.closest(".event-card")?.classList.toggle("open",opening); body.classList.toggle("hidden",!opening); if (!opening) return;
       const id=eventKey(event); const cached=auditDetailsCache.get(id);
       if (cached&&Array.isArray(cached.deliveries)) { renderAuditDetail(body,cached); return; }
       body.textContent=""; body.append(node("p","Loading complete audit…","audit-loading")); body.setAttribute("aria-busy","true");
@@ -2289,7 +2506,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       const reason=String(event.audit?.decisionReason||"").toLowerCase(); if (reason.startsWith("create gorelo ticket rule matched")) return "create_ticket"; if (reason.startsWith("create gorelo alert rule matched")) return "create_alert"; return null;
     }
     function auditPresentation(event) {
-      const actionType=structuredAuditAction(event); if (!actionType) return {decisionLabel:titleCase(event.decision),statusLabel:titleCase(event.status),actionLabel:titleCase(event.decision),destinationLabel:event.destination||"No destination",badgeClass:allowedStatusClasses.has(event.status)?event.status:"dropped"};
+      const actionType=structuredAuditAction(event); const mailboxSnapshot=event.destinationMailboxName?(event.destinationMailboxName+(event.destination?" · "+event.destination:"")):(event.destination||"No destination"); if (!actionType) return {decisionLabel:titleCase(event.decision),statusLabel:titleCase(event.status),actionLabel:titleCase(event.decision),destinationLabel:mailboxSnapshot,badgeClass:allowedStatusClasses.has(event.status)?event.status:"dropped"};
       const ticket=actionType==="create_ticket"; const noun=ticket?"Ticket":"Alert"; const delivery=Array.isArray(event.deliveries)?event.deliveries.find((item)=>item.actionType===actionType):undefined; const states={pending:noun+" queued",delivering:noun+" creation in progress",succeeded:noun+" created",failed:noun+" creation failed",uncertain:noun+" outcome uncertain"}; const statusLabel=delivery?states[delivery.state]:(event.status==="forwarded"?noun+" created":noun+" action needs review"); const badgeClass=delivery?.state||(event.status==="forwarded"?"succeeded":"failed");
       return {decisionLabel:"Create Gorelo "+noun.toLowerCase()+" via API",statusLabel,actionLabel:"Gorelo "+noun.toLowerCase()+" API",destinationLabel:"Gorelo API · original email not forwarded",badgeClass};
     }
@@ -2565,6 +2782,74 @@ const ADMIN_HTML = String.raw`<!doctype html>
       catch(error) { output.textContent=error.message; output.classList.add("unresolved"); }
     }
 
+    function validMailbox(mailbox,requireRoutingFlags=false) {
+      return mailbox&&typeof mailbox.id==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(mailbox.id)&&typeof mailbox.name==="string"&&mailbox.name.length>0&&mailbox.name.length<=120&&typeof mailbox.address==="string"&&mailbox.address.length>3&&mailbox.address.length<=254&&typeof mailbox.enabled==="boolean"&&typeof mailbox.isDefault==="boolean"&&Number.isSafeInteger(mailbox.version)&&mailbox.version>=1&&typeof mailbox.createdAt==="string"&&typeof mailbox.updatedAt==="string"&&(!requireRoutingFlags||(typeof mailbox.allowlisted==="boolean"&&typeof mailbox.routable==="boolean"));
+    }
+    function parseMailboxesResponse(data) {
+      const items=data&&data.mailboxes; const defaultId=data&&data.defaultMailboxId; const version=data&&data.version;
+      if (!Array.isArray(items)||!items.every((mailbox)=>validMailbox(mailbox,true))||(defaultId!==null&&typeof defaultId!=="string")||(version!==null&&(!Number.isSafeInteger(version)||version<1))) throw new Error("The Worker returned an invalid Gorelo mailbox directory.");
+      if (defaultId&&!items.some((mailbox)=>mailbox.id===defaultId&&mailbox.isDefault)) throw new Error("The Worker returned an inconsistent default Gorelo mailbox.");
+      return {mailboxes:items,defaultMailboxId:defaultId,version};
+    }
+    function populateActionMailboxSelect(preferred) {
+      const select=byId("actionMailboxId"); if (!select) return; const wanted=preferred===undefined?select.value:preferred; const defaultMailbox=defaultGoreloMailbox(); select.textContent=""; select.append(makeOption("",defaultMailbox?"Use default — "+defaultMailbox.name+" · "+defaultMailbox.address:"Use default Gorelo mailbox"));
+      goreloMailboxes.filter((mailbox)=>mailbox.routable).forEach((mailbox)=>select.append(makeOption(mailbox.id,mailbox.name+" · "+mailbox.address+(mailbox.isDefault?" · default":""))));
+      if (wanted&&wanted.startsWith("legacy:")) select.append(makeOption(wanted,"Legacy address · "+wanted.slice(7)));
+      else if (wanted&&!goreloMailboxes.some((mailbox)=>mailbox.id===wanted&&mailbox.routable)) select.append(makeOption(wanted,"Saved mailbox unavailable · "+wanted)); select.value=wanted||"";
+    }
+    function populateParserMailboxSelect(preferred) {
+      const select=byId("parserMailboxId"); if (!select) return; const wanted=preferred===undefined?select.value:preferred; const defaultMailbox=defaultGoreloMailbox(); const fallbackAddress=runtimeConfig?.defaultGoreloAddress; select.textContent=""; select.append(makeOption("",defaultMailbox?"Follow default — "+defaultMailbox.name+" · "+defaultMailbox.address:fallbackAddress?"Follow default · "+fallbackAddress:"Follow the default Gorelo mailbox")); goreloMailboxes.filter((mailbox)=>mailbox.routable).forEach((mailbox)=>select.append(makeOption(mailbox.id,"Pin to "+mailbox.name+" · "+mailbox.address+(mailbox.isDefault?" · current default":"")))); if (wanted&&!goreloMailboxes.some((mailbox)=>mailbox.id===wanted&&mailbox.routable)) select.append(makeOption(wanted,"Saved mailbox unavailable · "+wanted)); select.value=wanted||"";
+    }
+    function populateReviewMailboxSelect(preferred) {
+      const select=byId("reviewMailboxId"); const wanted=preferred||goreloMailboxDefaultId||""; select.textContent=""; select.append(makeOption("","Select an enabled mailbox")); goreloMailboxes.filter((mailbox)=>mailbox.routable).forEach((mailbox)=>select.append(makeOption(mailbox.id,mailbox.name+" · "+mailbox.address+(mailbox.isDefault?" · default":"")))); select.value=goreloMailboxes.some((mailbox)=>mailbox.id===wanted&&mailbox.routable)?wanted:"";
+    }
+    function resetMailboxForm() {
+      editingMailboxId=null; byId("mailboxForm").classList.add("hidden"); setText("mailboxFormHeading","Add Gorelo mailbox"); setText("mailboxFormDescription","Register an allow-listed address for routing."); setText("mailboxFormMode","New"); byId("mailboxName").value=""; byId("mailboxAddress").value=""; byId("mailboxAddress").disabled=false; byId("mailboxAddress").required=true; byId("mailboxEnabled").checked=true; clearError("mailboxFormError");
+    }
+    function resetMailboxes() {
+      goreloMailboxes=[]; goreloMailboxDefaultId=null; goreloMailboxSettingsVersion=null; goreloMailboxesLoaded=false; goreloMailboxesLoading=false; resetMailboxForm(); byId("addMailbox").disabled=true; clearError("mailboxNotice"); const list=byId("mailboxList"); list.textContent=""; list.removeAttribute("aria-busy"); list.append(emptyState("forward","Mailboxes not loaded","Open Setup to load the named Gorelo destinations.")); populateActionMailboxSelect(); populateParserMailboxSelect(); populateReviewMailboxSelect();
+    }
+    function renderMailboxes() {
+      const list=byId("mailboxList"); list.textContent=""; list.removeAttribute("aria-busy"); byId("addMailbox").disabled=false;
+      if (!goreloMailboxes.length) { list.append(emptyState("forward","No Gorelo mailboxes","Register an allow-listed Gorelo email destination before creating forward rules.","Add mailbox",()=>openMailboxForm(null))); populateActionMailboxSelect(); populateReviewMailboxSelect(); return; }
+      goreloMailboxes.forEach((mailbox)=>{
+        const row=node("article",undefined,"mailbox-row"); const copy=node("div",undefined,"mailbox-row-heading"); const heading=node("h4",mailbox.name); if (mailbox.isDefault) heading.append(node("span","Default","setup-state ready")); if (!mailbox.enabled) heading.append(node("span","Disabled","setup-state optional")); else if (!mailbox.allowlisted) heading.append(node("span","Not allow-listed","setup-state missing")); copy.append(heading,node("span",mailbox.address,"mailbox-address"));
+        const actions=node("div",undefined,"mailbox-actions"); if (!mailbox.isDefault) { const makeDefault=node("button","Make default","btn small"); makeDefault.type="button"; makeDefault.disabled=!mailbox.routable; makeDefault.title=mailbox.routable?"Use for unmatched mail and default-following rules":"Enable and allow-list this mailbox before making it default"; makeDefault.onclick=()=>setDefaultMailbox(mailbox,makeDefault); actions.append(makeDefault); }
+        const edit=node("button","Edit","btn small"); edit.type="button"; edit.onclick=()=>openMailboxForm(mailbox); const toggle=node("button",mailbox.enabled?"Disable":"Enable","btn small"); toggle.type="button"; toggle.disabled=mailbox.isDefault; toggle.title=mailbox.isDefault?"Choose another default mailbox before disabling this one":""; toggle.onclick=()=>toggleMailbox(mailbox,toggle); const remove=node("button","Delete","btn danger small"); remove.type="button"; remove.disabled=mailbox.isDefault; remove.title=mailbox.isDefault?"Choose another default mailbox before deleting this one":""; remove.onclick=()=>deleteMailbox(mailbox,remove); actions.append(edit,toggle,remove); row.append(copy,actions); list.append(row);
+      });
+      populateActionMailboxSelect(); populateParserMailboxSelect(); populateReviewMailboxSelect(); if (rulesCache.length) renderRules();
+    }
+    async function loadMailboxes(force=false) {
+      if (goreloMailboxesLoading||(!force&&goreloMailboxesLoaded)) return; goreloMailboxesLoading=true; clearError("mailboxNotice"); loading(byId("mailboxList")); byId("addMailbox").disabled=true;
+      try { const result=parseMailboxesResponse(await api("/api/v1/integrations/gorelo/mailboxes")); goreloMailboxes=result.mailboxes; goreloMailboxDefaultId=result.defaultMailboxId; goreloMailboxSettingsVersion=result.version; goreloMailboxesLoaded=true; renderMailboxes(); }
+      catch(error) { goreloMailboxesLoaded=false; const list=byId("mailboxList"); list.textContent=""; list.removeAttribute("aria-busy"); list.append(emptyState("!","Mailboxes unavailable","Forwarding continues with the deployment default. Refresh after checking Setup readiness.","Retry",()=>loadMailboxes(true))); showError("mailboxNotice",error); }
+      finally { goreloMailboxesLoading=false; populateActionMailboxSelect(); populateParserMailboxSelect(); populateReviewMailboxSelect(); }
+    }
+    function openMailboxForm(mailbox) {
+      editingMailboxId=mailbox?.id||null; setText("mailboxFormHeading",mailbox?"Edit Gorelo mailbox":"Add Gorelo mailbox"); setText("mailboxFormDescription",mailbox?"Rename or change availability. The routing address stays fixed.":"Register an allow-listed address for routing."); setText("mailboxFormMode",mailbox?"Editing":"New"); byId("mailboxName").value=mailbox?.name||""; byId("mailboxAddress").value=mailbox?.address||""; byId("mailboxAddress").disabled=Boolean(mailbox); byId("mailboxAddress").required=!mailbox; byId("mailboxEnabled").checked=mailbox?mailbox.enabled:true; byId("mailboxEnabled").disabled=Boolean(mailbox?.isDefault); clearError("mailboxFormError"); byId("mailboxForm").classList.remove("hidden"); byId("mailboxName").focus();
+    }
+    function closeMailboxForm() { resetMailboxForm(); byId("mailboxEnabled").disabled=false; byId("addMailbox").focus(); }
+    async function saveMailbox() {
+      clearError("mailboxFormError"); if (!byId("mailboxForm").reportValidity()) return; const current=editingMailboxId?mailboxById(editingMailboxId):null; if (editingMailboxId&&!current) { showError("mailboxFormError",new Error("This mailbox changed. Refresh Setup and try again.")); return; }
+      const name=byId("mailboxName").value.trim(); const enabled=byId("mailboxEnabled").checked; const body=current?{name,enabled,version:current.version}:{name,address:byId("mailboxAddress").value.trim(),enabled};
+      try { await runBusy(byId("saveMailbox"),"Saving…",async()=>{ const path=current?"/api/v1/integrations/gorelo/mailboxes/"+encodeURIComponent(current.id):"/api/v1/integrations/gorelo/mailboxes"; const data=await api(path,{method:current?"PUT":"POST",body:JSON.stringify(body)}); if (!validMailbox(data&&data.mailbox)) throw new Error("The Worker returned an invalid Gorelo mailbox."); await loadMailboxes(true); }); resetMailboxForm(); byId("mailboxEnabled").disabled=false; showToast(current?"Gorelo mailbox updated":"Gorelo mailbox added"); }
+      catch(error) { showError("mailboxFormError",error); showToast(error.message,"error"); }
+    }
+    async function setDefaultMailbox(mailbox,button) {
+      if (!Number.isSafeInteger(goreloMailboxSettingsVersion)) { showError("mailboxNotice",new Error("Refresh the mailbox directory before changing the default.")); return; }
+      clearError("mailboxNotice"); try { await runBusy(button,"Saving…",async()=>{ await api("/api/v1/integrations/gorelo/mailboxes/default",{method:"PUT",body:JSON.stringify({mailboxId:mailbox.id,version:goreloMailboxSettingsVersion})}); await loadMailboxes(true); }); showToast(mailbox.name+" is now the default Gorelo mailbox"); }
+      catch(error) { if (error&&error.status===409) await loadMailboxes(true); showError("mailboxNotice",error); showToast(error.message,"error"); }
+    }
+    async function toggleMailbox(mailbox,button) {
+      clearError("mailboxNotice"); try { await runBusy(button,mailbox.enabled?"Disabling…":"Enabling…",async()=>{ await api("/api/v1/integrations/gorelo/mailboxes/"+encodeURIComponent(mailbox.id),{method:"PUT",body:JSON.stringify({name:mailbox.name,enabled:!mailbox.enabled,version:mailbox.version})}); await loadMailboxes(true); }); showToast(mailbox.enabled?"Gorelo mailbox disabled":"Gorelo mailbox enabled"); }
+      catch(error) { if (error&&error.status===409) await loadMailboxes(true); showError("mailboxNotice",error); showToast(error.message,"error"); }
+    }
+    async function deleteMailbox(mailbox,button) {
+      if (!window.confirm("Delete Gorelo mailbox ‘"+mailbox.name+"’? Rules that reference it must be repointed first.")) return; clearError("mailboxNotice");
+      try { await runBusy(button,"Deleting…",async()=>{ await api("/api/v1/integrations/gorelo/mailboxes/"+encodeURIComponent(mailbox.id)+"?version="+encodeURIComponent(String(mailbox.version)),{method:"DELETE"}); if (editingMailboxId===mailbox.id) resetMailboxForm(); await loadMailboxes(true); }); showToast("Gorelo mailbox deleted"); }
+      catch(error) { if (error&&error.status===409) await loadMailboxes(true); showError("mailboxNotice",error); showToast(error.message,"error"); }
+    }
+
     function validWebhook(webhook) {
       return webhook&&typeof webhook.id==="string"&&typeof webhook.name==="string"&&typeof webhook.url==="string"&&typeof webhook.enabled==="boolean"&&Number.isSafeInteger(webhook.version)&&webhook.version>=0&&typeof webhook.createdAt==="string"&&typeof webhook.updatedAt==="string";
     }
@@ -2640,7 +2925,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       try { await runBusy(button,"Deleting…",async()=>{ await api("/api/v1/webhooks/"+encodeURIComponent(webhook.id)+"?version="+encodeURIComponent(String(webhook.version)),{method:"DELETE"}); if (editingWebhookId===webhook.id) resetWebhookForm(); await loadWebhooks(true); }); showToast("Webhook destination deleted"); }
       catch(error) { showError("webhookNotice",error); showToast(error.message,"error"); }
     }
-    async function loadSetupExtensions(force=false) { await Promise.allSettled([loadClientDirectory(force),loadWebhooks(force)]); }
+    async function loadSetupExtensions(force=false) { await Promise.allSettled([loadMailboxes(force),loadClientDirectory(force),loadWebhooks(force)]); }
 
     function isAuthenticated() { return !byId("workspace").classList.contains("hidden"); }
     function isEditableTarget(target) { return target instanceof HTMLElement && (target.matches("input,textarea,select")||target.isContentEditable); }
@@ -2723,7 +3008,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       const apply=()=>{ update(); syncTabIndicator(); };
       apply(); const finished=Promise.resolve();
       if (name==="quarantine" && !quarantineCache.length) loadQuarantine();
-      if (name==="audit" && !eventsCache.length) loadEvents();
+      if (name==="audit") { if (!eventsCache.length) loadEvents(); void loadParserCaptures(); }
       if (name==="setup") void loadSetupExtensions();
       if (focusHeading) finished.then(()=>{ if (requestSequence===tabChangeSequence) byId(name+"Heading").focus(); });
       return finished;
@@ -2736,13 +3021,14 @@ const ADMIN_HTML = String.raw`<!doctype html>
     function forceDisconnect(message) {
       uiTransitionSequence+=1; if (activeUiTransition) activeUiTransition.skipTransition(); activeUiTransition=null;
       testRequestVersion+=1; resetTestResult(); clearError("testError");
+      stopCapturePoll(); activeParserCapture=null; parserRuleSample=null; parserRuleEvent=null; parserRuleInvoker=null; if (byId("parserRuleDialog").open) byId("parserRuleDialog").close();
       closeTemplateTrainer(true,false);
       if (byId("reviewDialog").open) byId("reviewDialog").close();
       if (byId("clientAliasDialog").open) byId("clientAliasDialog").close();
       if (byId("commandDialog").open) byId("commandDialog").close(); byId("commandSearch").value=""; commandInvoker=null; visibleCommands=[];
       if (eventSearchTimer!==null) clearTimeout(eventSearchTimer); if (quarantineSearchTimer!==null) clearTimeout(quarantineSearchTimer); eventSearchTimer=null; quarantineSearchTimer=null; eventsRequestVersion+=1; quarantineRequestVersion+=1;
       closeEditor(true,false); token=""; byId("token").value=""; editingId=null; editorDirty=false; editorReturnFocus=null; rulesCache=[]; eventsCache=[]; eventsCursor=null; quarantineCache=[]; quarantineCursor=null; quarantineSummary={pending:0,releaseFailed:0,released:0,dismissed:0}; runtimeConfig=null; setupState=null; goreloTestState=null; selectedQuarantineId=null; reviewAction=null; reviewEvent=null; auditDetailsCache.clear(); goreloCatalogs.clear(); goreloCatalogLoads.clear(); goreloActionPreferences=null; lastRefresh=null;
-      byId("rules").textContent=""; byId("events").textContent=""; byId("quarantineList").textContent=""; renderQuarantineDetail(null); resetSetupView(); resetClientDirectory(); resetWebhooks(); updateSummary();
+      byId("rules").textContent=""; byId("events").textContent=""; byId("quarantineList").textContent=""; renderQuarantineDetail(null); resetSetupView(); resetMailboxes(); resetClientDirectory(); resetWebhooks(); renderCaptureBanner(); updateSummary();
       byId("primaryTabs").dataset.indicatorReady="false"; byId("workspace").classList.add("hidden"); byId("sessionControls").classList.add("hidden"); byId("login").classList.remove("hidden"); byId("loginError").textContent=message||""; showTab("rules",false); byId("token").focus();
     }
     function disconnect() { if (!confirmDiscard()) return; forceDisconnect(""); }
@@ -2754,7 +3040,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
           const [rulesData,eventsData,runtimeData,quarantineData,setupData]=await Promise.all([api("/api/v1/rules"),api("/api/v1/events?status=all&limit="+String(RETAINED_MESSAGE_PAGE_SIZE)),api("/api/v1/runtime"),api("/api/v1/quarantine?state=all&limit="+String(RETAINED_MESSAGE_PAGE_SIZE)),fetchSetup()]);
           rulesCache=Array.isArray(rulesData.rules)?rulesData.rules:[]; eventsCache=Array.isArray(eventsData.events)?eventsData.events:[]; eventsCursor=pageCursor(eventsData.nextCursor); runtimeConfig=runtimeData.runtime; quarantineCache=Array.isArray(quarantineData.items)?quarantineData.items:[]; quarantineCursor=pageCursor(quarantineData.nextCursor); quarantineSummary=quarantineData.summary||{pending:0,releaseFailed:0,released:0,dismissed:0}; setupState=setupData; goreloTestState=null;
         });
-        byId("token").value=""; byId("login").classList.add("hidden"); byId("workspace").classList.remove("hidden"); byId("sessionControls").classList.remove("hidden"); lastRefresh=new Date(); renderRuntime(); renderRules(); renderEvents(); renderQuarantine(); renderSetup(setupState); updateSummary(); showTab("rules",false); byId("workspaceTitle").focus(); showToast("Connected to Gorelo Router"); void loadSetupExtensions();
+        byId("token").value=""; byId("login").classList.add("hidden"); byId("workspace").classList.remove("hidden"); byId("sessionControls").classList.remove("hidden"); lastRefresh=new Date(); renderRuntime(); renderRules(); renderEvents(); renderQuarantine(); renderSetup(setupState); updateSummary(); showTab("rules",false); byId("workspaceTitle").focus(); showToast("Connected to Gorelo Router"); void loadSetupExtensions(); void loadParserCaptures();
       } catch(error) { token=""; setupState=null; goreloTestState=null; resetSetupView(); showError("loginError",error); byId("token").focus(); }
     }
 
@@ -2776,7 +3062,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     byId("cancelEdit").onclick=()=>closeEditor(false);
     byId("builderMode").onclick=()=>setEditorMode("builder"); byId("jsonMode").onclick=()=>setEditorMode("json");
     byId("addCondition").onclick=()=>{ addConditionRow(); editorDirty=true; };
-    byId("actionType").onchange=()=>{ lastGoreloTemplateTarget=null; updateActionFields(); editorDirty=true; }; byId("bypassSpam").onchange=()=>{ updateActionFields(); editorDirty=true; };
+    byId("actionType").onchange=()=>{ lastGoreloTemplateTarget=null; updateActionFields(); editorDirty=true; }; byId("actionMailboxId").onchange=()=>{ editorDirty=true; }; byId("bypassSpam").onchange=()=>{ updateActionFields(); editorDirty=true; };
     byId("teachParser").onclick=(event)=>openTemplateTrainer(event.currentTarget); byId("addWebhookField").onclick=()=>{ addWebhookFieldRow(); editorDirty=true; }; byId("ruleWebhookDestination").onchange=()=>{ webhookActionDestinationPreference=byId("ruleWebhookDestination").value; editorDirty=true; };
     byId("refreshRuleWebhooks").onclick=()=>runBusy(byId("refreshRuleWebhooks"),"Refreshing…",async()=>{ await ensureWebhookActionDestinations(true); if (webhooksLoaded) showToast("Webhook destinations refreshed"); });
     byId("clientIdentityField").onchange=()=>{ updateClientLinkageFields(); editorDirty=true; };
@@ -2796,19 +3082,22 @@ const ADMIN_HTML = String.raw`<!doctype html>
     byId("testForm").oninput=()=>{ const result=byId("testResult"); if (result.classList.contains("has-result")||result.classList.contains("has-error")) { clearError("testError"); resetTestResult(); } };
     byId("refreshSetup").onclick=()=>runBusy(byId("refreshSetup"),"Refreshing…",async()=>{ try { await loadSetup(); await loadSetupExtensions(true); showToast("Setup status refreshed"); } catch(error) { showToast(error.message,"error"); } });
     byId("testGorelo").onclick=testGoreloConnection; byId("copySetupCommand").onclick=copySetupCommand;
+    byId("addMailbox").onclick=()=>openMailboxForm(null); byId("cancelMailbox").onclick=closeMailboxForm; byId("mailboxForm").onsubmit=(event)=>{ event.preventDefault(); saveMailbox(); };
     byId("importGoreloClients").onclick=importGoreloClients; byId("clientSearch").oninput=renderClientDirectory; byId("clientAliasForm").onsubmit=(event)=>{ event.preventDefault(); addClientAliases(); }; byId("clientResolutionForm").onsubmit=(event)=>{ event.preventDefault(); previewClientResolution(); };
     byId("clientAliasEditForm").onsubmit=(event)=>{ event.preventDefault(); saveClientAliasEdit(); }; byId("cancelClientAliasEdit").onclick=closeClientAliasEditor; byId("clientAliasDialog").addEventListener("close",()=>{ editingClientAlias=null; clearError("clientAliasDialogError"); });
     byId("addWebhook").onclick=()=>openWebhookForm(null); byId("cancelWebhook").onclick=closeWebhookForm; byId("webhookForm").onsubmit=(event)=>{ event.preventDefault(); saveWebhook(); };
     byId("reviewActionForm").onsubmit=(event)=>{ event.preventDefault(); submitReviewAction(); };
     byId("reviewCancel").onclick=()=>byId("reviewDialog").close();
     byId("reviewDialog").addEventListener("close",()=>{ reviewAction=null; reviewEvent=null; clearError("reviewDialogError"); });
+    byId("parserRuleForm").onsubmit=(event)=>{ event.preventDefault(); createParserRuleDraft(); }; byId("parserRuleForm").elements.parserOutcome.forEach((input)=>{ input.onchange=renderParserRuleDialog; }); byId("cancelParserRule").onclick=()=>closeParserRuleDialog(); byId("captureNextEmail").onclick=()=>{ const related=activeParserCapture?.sourceEventId===eventKey(parserRuleEvent||{}); if (related&&activeParserCapture?.state==="captured"&&activeParserCapture.sampleAvailable) void teachFromCapturedEmail(byId("captureNextEmail")); else void startParserCapture(); };
+    byId("parserRuleDialog").addEventListener("click",(event)=>{ if (event.target===byId("parserRuleDialog")) closeParserRuleDialog(); }); byId("parserRuleDialog").addEventListener("close",()=>{ const invoker=parserRuleInvoker; const restore=parserRuleRestoreFocus; parserRuleSample=null; parserRuleEvent=null; parserRuleInvoker=null; parserRuleRestoreFocus=true; clearError("parserRuleError"); if (restore&&invoker&&document.contains(invoker)) requestAnimationFrame(()=>invoker.focus()); });
     Object.values(trainerSourceControls).forEach((id)=>{ const control=byId(id); control.addEventListener("select",()=>captureTrainerSelection(control)); control.addEventListener("keyup",()=>captureTrainerSelection(control)); control.addEventListener("pointerup",()=>captureTrainerSelection(control)); control.addEventListener("input",()=>handleTrainerSampleInput(control)); });
     byId("trainerKey").addEventListener("input",()=>{ clearError("trainerError"); updateTrainerControls(); }); byId("trainerKey").addEventListener("keydown",(event)=>{ if (event.key==="Enter"&&!byId("createTrainerVariable").disabled) { event.preventDefault(); void createTrainerVariable(); } });
     byId("useDryRunSample").onclick=loadDryRunIntoTrainer; byId("createTrainerVariable").onclick=()=>void createTrainerVariable(); byId("applyTrainerVariables").onclick=applyTrainerVariables; byId("closeTemplateTrainer").onclick=()=>closeTemplateTrainer(); byId("cancelTemplateTrainer").onclick=()=>closeTemplateTrainer();
     byId("templateTrainerDialog").addEventListener("cancel",(event)=>{ if (trainerHasWork()&&!confirm("Discard this sample and its taught variables?")) event.preventDefault(); }); byId("templateTrainerDialog").addEventListener("click",(event)=>{ if (event.target===byId("templateTrainerDialog")) closeTemplateTrainer(); }); byId("templateTrainerDialog").addEventListener("close",()=>{ const invoker=trainerInvoker; const restore=trainerRestoreFocus; trainerInvoker=null; trainerRestoreFocus=true; resetTemplateTrainer(); if (restore&&invoker&&document.contains(invoker)) requestAnimationFrame(()=>invoker.focus()); });
     window.addEventListener("resize",()=>syncTabIndicator(false));
     window.addEventListener("beforeunload",(event)=>{ if (editorDirty||trainerHasWork()) { event.preventDefault(); event.returnValue=""; } });
-    resetTestResult(); resetSetupView(); resetClientDirectory(); resetWebhooks(); showTab("rules",false);
+    resetTestResult(); resetSetupView(); resetMailboxes(); resetClientDirectory(); resetWebhooks(); renderCaptureBanner(); showTab("rules",false);
   </script>
 </body>
 </html>`;

@@ -166,9 +166,19 @@ const forwardActionSchema = z
   .object({
     type: z.literal("forward"),
     destination: z.string().trim().email().optional(),
+    mailboxId: z.string().uuid().optional(),
     bypassSpam: z.boolean().default(false),
   })
-  .strict();
+  .strict()
+  .superRefine((action, context) => {
+    if (action.destination !== undefined && action.mailboxId !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["mailboxId"],
+        message: "Choose a Gorelo mailbox or a legacy destination, not both",
+      });
+    }
+  });
 
 const safeIdentifier = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 const safeDestinationId = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -635,6 +645,7 @@ const forwardWebhookActionSchema = z
   .object({
     type: z.literal("forward_webhook"),
     destination: z.string().trim().email().optional(),
+    mailboxId: z.string().uuid().optional(),
     bypassSpam: z.boolean().default(false),
     webhookDestinationId: z.string().min(1).max(64).regex(safeDestinationId),
     eventType: z
@@ -659,6 +670,13 @@ const forwardWebhookActionSchema = z
   })
   .strict()
   .superRefine((action, context) => {
+    if (action.destination !== undefined && action.mailboxId !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["mailboxId"],
+        message: "Choose a Gorelo mailbox or a legacy destination, not both",
+      });
+    }
     const keys = new Set<string>();
     action.fields.forEach((field, index) => {
       if (keys.has(field.key)) {

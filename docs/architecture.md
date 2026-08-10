@@ -2,7 +2,15 @@
 
 ## Boundaries
 
-Cloudflare Email Routing owns SMTP receipt and the live `ForwardableEmailMessage`. The top-level Wrangler `addresses` declaration makes deployment reconcile one `*@domain` catch-all to this Worker; the Worker owns recipient-specific inspection, ordered rule evaluation, client identity resolution, delivery audit, and routing. An explicit Cloudflare Email Routing rule takes precedence over the catch-all, so any address configured there bypasses Gorelo Router entirely. Gorelo's native inbound address owns the default email-to-ticket conversion; opt-in structured rules use Gorelo's ticket or alert API instead.
+Cloudflare Email Routing owns SMTP receipt and the live
+`ForwardableEmailMessage`. The top-level Wrangler `addresses` declaration makes
+deployment reconcile one `*@domain` catch-all to this Worker; the Worker owns
+recipient-specific inspection, ordered rule evaluation, named Gorelo mailbox
+resolution, client identity resolution, delivery audit, and routing. An
+explicit Cloudflare Email Routing rule takes precedence over the catch-all, so
+any address configured there bypasses Gorelo Router entirely. Gorelo's native
+inbound addresses own the default email-to-ticket conversion; opt-in structured
+rules use Gorelo's ticket or alert API instead.
 
 The normal forward path deliberately does not call `POST /v1/tickets`: Gorelo's native inbound route preserves message and attachment semantics that its structured ticket API cannot reproduce. A matching rule may add a signed webhook action after the primary forward. An explicit `create_ticket` or `create_alert` rule is API-only on its primary path: it requires a private `MESSAGE_ARCHIVE` and sends only mapped fields to Gorelo instead of calling `message.forward()`. A definitive failure may still use the explicit failure route. An internal quarantine is different again—it retains the exact RFC 5322 message in private R2 until a reviewer dismisses or releases it.
 
@@ -41,6 +49,28 @@ bounded MIME parse → final decision ───────┬──────
 9. For `create_ticket` or `create_alert`, resolve an imported current client, render a bounded credential-free PascalCase request, persist its delivery snapshot, and make one Gorelo create attempt. Update the event and delivery audit with the confirmed, failed, or uncertain result. A definitive failure can use the explicit failure route; an uncertain result is retained without fallback.
 
 This preserves rule order without treating unavailable MIME content as empty. It also lets a high-priority envelope or size rule protect the parsing path.
+
+## Named Gorelo mailbox registry
+
+D1 stores Gorelo forwarding addresses as named, versioned mailboxes. A
+singleton settings row holds the one persistent default instead of duplicating
+a default flag across mailbox records. The bootstrap path creates the initial
+mailbox/default from `DEFAULT_GORELO_ADDRESS` only when the registry is empty;
+subsequent environment changes never silently rewrite persisted operator state.
+
+Forward and forward-plus-webhook rules may either omit both destination fields
+to follow the current default or store a stable `mailboxId` to pin a named
+destination. Unmatched non-spam mail also resolves the current default, so
+changing it affects unmatched mail and default-following rules, but not pinned
+rules. Legacy actions with a literal `destination` remain valid for
+compatibility and are resolved without silently rewriting their JSON.
+
+The registry is constrained by `ALLOWED_FORWARD_DESTINATIONS`; an enabled
+mailbox outside that deployment allow-list is not routable. Cloudflare's
+verified-destination control remains independent and is also required. The
+processing event snapshots the resolved mailbox ID and name alongside the
+address so later renames or default changes do not alter historical audit
+meaning.
 
 ## Quarantine modes and review states
 
@@ -88,15 +118,61 @@ Fields use literal delimiters rather than regular expressions or executable temp
 
 Delivery uses optimistic claims and immutable attempt rows. Definitive 4xx failures stop. Explicit HTTP `429`/5xx responses receive bounded retry scheduling for at most five total automatic attempts. Network errors and timeouts are `uncertain` and are not automatically resent because request acceptance cannot be disproved. The five-minute cron first reconciles claims abandoned for more than ten minutes to `uncertain`, then processes only due retryable HTTP failures. Destination drift also becomes `uncertain`. Overlapping triggers are safe because only one expected version can claim or reconcile a delivery.
 
+## Parser teaching and next-message capture
+
+Audit-to-rule teaching consumes a bounded plain-text sample rather than raw
+MIME. If an event has a verified retained original, the Worker parses it
+server-side and returns only normalized text; otherwise it uses the bounded
+Audit preview. HTML, attachments, raw RFC 5322 bytes, and private R2 keys never
+cross the trainer boundary. The generated rule is an unsaved, disabled draft,
+and inference persists only bounded literal markers and variable names.
+
+When no usable body exists, an authenticated operator may explicitly arm one
+short-lived capture. D1 stores its exact recipient, optional exact sender
+address/domain, optional literal subject filter, state/version, requester, and
+deadlines—not the message body. The dashboard defaults to 15 minutes and the
+API permits a bounded 5-to-60-minute wait; only the first matching inbound
+message can claim it. A partial unique index permits one active request per
+recipient, keeping “the next message” unambiguous.
+
+Capture is observational: the message continues through its normal rule,
+forward, webhook, ticket/alert, quarantine, drop, or reject path. The capture
+branch derives a bounded normalized plain-text sample and stores that separate
+object in private R2 for at most 60 minutes. It never copies HTML, attachments,
+or raw MIME into the teaching object. Claim/state transitions prevent two
+concurrent messages from winning the same request; cancellation, timeout,
+failure, and sample expiry are explicit terminal states.
+
+The claim requires Cloudflare's `canBeForwarded` signal and occurs only after
+spam assessment and an accepted forward, webhook, ticket, or alert decision;
+spam, quarantine, drop, reject, and oversize messages cannot consume the
+request. The dashboard defaults to an exact envelope sender match. Because an
+envelope address is a filter rather than DMARC identity alignment, operators
+should keep the window short and add a literal subject constraint when useful.
+
 ## Audit and admin surface
 
 The self-hosted Tabler dashboard has five workspaces:
 
-- **Rules**: guided and JSON editing, templates, ordering, enable/disable, extraction mapping, structured Gorelo catalog selectors, and deletion. Custom-asset and uptime IDs are rejected until they can be selected from a trustworthy catalog.
+- **Rules**: guided and JSON editing, templates, ordering, enable/disable,
+  stable named-mailbox selection, extraction mapping, structured Gorelo catalog
+  selectors, and deletion. Custom-asset and uptime IDs are rejected until they
+  can be selected from a trustworthy catalog.
 - **Quarantine**: state counts, filtering/search, safe content detail, EML download, review timeline, and versioned Release/Dismiss actions when supported by runtime capabilities.
-- **Audit**: recent decision summaries and hydrated detail including spam analysis, sanitized headers, body preview, attachments, processing trace, archive availability and authenticated EML download, mapped variables, resolved Gorelo clients, provider IDs, and immutable delivery attempts.
+- **Audit**: recent decision summaries and hydrated detail including spam
+  analysis, resolved mailbox, sanitized headers, body preview, attachments,
+  processing trace, archive availability and authenticated EML download, mapped
+  variables, resolved Gorelo clients, provider IDs, immutable delivery
+  attempts, and the entry point for a disabled rule draft or next-message
+  teaching capture.
 - **Dry run**: policy and structured-mapping evaluation without delivery or storage. It never creates a Gorelo ticket or alert.
-- **Setup**: non-secret, enabled-rule-aware readiness; Gorelo connection/catalog checks; current-client import; grouped one-to-many global/source-scoped alias management and resolution preview; and registered webhook destinations. Readiness requires the integrations actually used by enabled rules, including current Gorelo clients and enabled webhook destinations. Secret values are never entered or returned in the browser.
+- **Setup**: named Gorelo mailbox/default management; non-secret,
+  enabled-rule-aware readiness; Gorelo connection/catalog checks;
+  current-client import; grouped one-to-many global/source-scoped alias
+  management and resolution preview; and registered webhook destinations.
+  Readiness requires the integrations actually used by enabled rules, including
+  routable mailboxes, current Gorelo clients, and enabled webhook destinations.
+  Secret values are never entered or returned in the browser.
 
 Every new D1 reference to a retained R2 object pins its SHA-256. Authenticated raw download and quarantine release perform a bounded read and verify the stored size and any pinned digest before using the bytes. The detail API applies the same verification before parsing an object that is within `MAX_PARSE_BYTES`; on verification failure it keeps the existing bounded audit snapshot instead of hydrating from untrusted bytes. Raw content is served only as an authenticated attachment with no-store caching, `nosniff`, and a sandbox CSP.
 
@@ -104,7 +180,26 @@ Every new D1 reference to a retained R2 object pins its SHA-256. Authenticated r
 
 The daily cron derives a cutoff from `EVENT_RETENTION_DAYS`. It repeatedly deletes expired R2 objects first, clears their private D1 archive references, and then deletes processing records; quarantine items and action history cascade. If R2 is unavailable while an expired D1 row still references an object, cleanup stops rather than deleting the only pointer.
 
-Configure a bucket lifecycle slightly longer than D1 retention as an orphan safety net. R2 lifecycle deletion is not instantaneous; see [object lifecycle behavior](https://developers.cloudflare.com/r2/buckets/object-lifecycles/). R2 automatically encrypts objects and metadata at rest, but the bucket must remain private; see [R2 data security](https://developers.cloudflare.com/r2/reference/data-security/).
+Teaching captures have a separate, much shorter lifecycle. A pending request
+waits no more than the API's 60-minute limit (15 minutes by default in the
+dashboard), and a successfully captured normalized text object expires within
+60 minutes. It is not extended to
+`EVENT_RETENTION_DAYS`, is not a raw-message archive, and contains no HTML or
+attachments.
+
+Configure two prefix-scoped bucket lifecycle rules as orphan safety nets:
+`messages/` slightly longer than D1 retention and `parser-samples/` at one day.
+R2 lifecycle deletion is not instantaneous; see [object lifecycle behavior](https://developers.cloudflare.com/r2/buckets/object-lifecycles/). R2 automatically encrypts objects and metadata at rest, but the bucket must remain private; see [R2 data security](https://developers.cloudflare.com/r2/reference/data-security/).
+
+## Schema deployment
+
+The Docker entrypoint and one-shot production deployment both run Wrangler's
+D1 migration application before starting or activating code that depends on a
+new schema. Migration files are ordered and additive; D1 records completed
+files, so the same command initializes an empty database and safely skips
+already-applied migrations on an upgrade. There is no automatic downgrade.
+Production upgrades therefore still require a reviewed backup and recovery
+plan before the Docker deployment is run.
 
 ## Safe defaults and failure model
 
@@ -113,7 +208,9 @@ Configure a bucket lifecycle slightly longer than D1 retention as an orphan safe
 - Trusted envelope-sender domains only subtract score; they are not authentication or allow-list decisions. Dynamic client mapping must therefore use a dedicated parser recipient plus independently authenticated upstream source; an exact alias prevents fuzzy misrouting but does not establish trust.
 - A matching forward, webhook, ticket, or alert rule cannot bypass non-forward global spam policy without explicit `bypassSpam: true`.
 - Failure routing uses `FAILURE_FORWARD_ADDRESS`, then `QUARANTINE_ADDRESS`, and never silently falls through to normal Gorelo delivery.
-- Dynamic destinations are validated in the application and constrained again by Cloudflare bindings/verified addresses.
+- Named mailbox and legacy literal destinations are validated in the
+  application against `ALLOWED_FORWARD_DESTINATIONS` and constrained again by
+  Cloudflare bindings/verified addresses.
 - User regular expressions are excluded; wildcard matching uses a bounded bitset automaton.
 - Admin tokens are compared through SHA-256 digests and retained only in dashboard memory.
 - Webhook URLs are centrally registered against an exact host allowlist; rule content cannot choose a URL.
@@ -132,8 +229,12 @@ Protect the HTTP application with Cloudflare Access and disable alternate direct
 
 - Use a dedicated ingestion subdomain when another provider handles corporate mail.
 - Observe scores before enabling quarantine/drop/reject.
-- Create the private `MESSAGE_ARCHIVE` bucket and a lifecycle rule slightly longer than `EVENT_RETENTION_DAYS`.
-- Initialize D1 from the single first-release baseline and keep the `MESSAGE_ARCHIVE` bucket private.
+- Create the private `MESSAGE_ARCHIVE` bucket with a `messages/` lifecycle rule
+  slightly longer than `EVENT_RETENTION_DAYS` and a one-day
+  `parser-samples/` orphan backstop.
+- Use only the Docker deployment path so every pending additive D1 migration is
+  applied before the Worker version that expects it; keep the `MESSAGE_ARCHIVE`
+  bucket private.
 - When enabling automated release, onboard the release sender domain, add the otherwise optional `send_email` binding and `RELEASE_FROM_ADDRESS`, restrict the binding to exact sender/Gorelo addresses, and live-test threading, sender association, and attachments.
 - Put a metadata-only size rule before body/attachment rules and align it with `MAX_PARSE_BYTES`.
 - Save the one-time, OpenSSL-generated `ADMIN_API_TOKEN` immediately; rotate it
@@ -144,7 +245,8 @@ Protect the HTTP application with Cloudflare Access and disable alternate direct
 - Generate and rotate a random `WEBHOOK_SIGNING_SECRET`; configure exact destination hosts and verify receiver-side timestamp/signature checks.
 - Monitor Worker exceptions, R2/D1 failures, `release_failed`/long-running `releasing`, and quarantine volume.
 - Monitor failed/uncertain outbound deliveries; investigate uncertain attempts before any manual remediation.
-- Verify `/api/v1/readiness` after every schema, binding, enabled-rule, client-import, or webhook-destination change.
+- Verify `/api/v1/readiness` after every schema, binding, mailbox/default,
+  enabled-rule, client-import, or webhook-destination change.
 - Use Workers Paid for representative large multipart workloads.
 
 ## Future extensions

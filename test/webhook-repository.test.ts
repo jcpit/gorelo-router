@@ -48,6 +48,12 @@ class TestDatabase {
 
   constructor() {
     this.sqlite.exec(readFileSync("migrations/0001_initial.sql", "utf8"));
+    this.sqlite.exec(
+      readFileSync("migrations/0002_mailboxes_and_parser_samples.sql", "utf8"),
+    );
+    this.sqlite.exec(
+      readFileSync("migrations/0003_parser_captures.sql", "utf8"),
+    );
   }
 
   prepare(query: string): D1PreparedStatement {

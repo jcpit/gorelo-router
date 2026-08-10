@@ -1,4 +1,5 @@
 import type { Env, RuntimeConfig } from "./types";
+import { loadGoreloMailboxDirectory } from "./mailbox-repository";
 
 export type SetupCheckStatus = "ready" | "optional" | "missing";
 
@@ -46,6 +47,11 @@ async function databaseCheck(db: D1Database): Promise<SetupCheck> {
     await db.prepare("SELECT id FROM gorelo_client_sync LIMIT 0").all();
     await db.prepare("SELECT id FROM client_aliases LIMIT 0").all();
     await db.prepare("SELECT id FROM webhook_destinations LIMIT 0").all();
+    await db.prepare("SELECT id FROM gorelo_mailboxes LIMIT 0").all();
+    await db
+      .prepare("SELECT default_mailbox_id FROM gorelo_mailbox_settings LIMIT 0")
+      .all();
+    await db.prepare("SELECT id FROM parser_captures LIMIT 0").all();
     return {
       key: "database",
       label: "D1 schema",
@@ -58,6 +64,89 @@ async function databaseCheck(db: D1Database): Promise<SetupCheck> {
       label: "D1 schema",
       status: "missing",
       detail: "Initialize the current D1 schema before enabling delivery.",
+    };
+  }
+}
+
+async function forwardingCheck(
+  db: D1Database,
+  config: RuntimeConfig,
+): Promise<SetupCheck> {
+  try {
+    const directory = await loadGoreloMailboxDirectory(db, {
+      allowedAddresses: config.allowedForwardDestinations,
+      bootstrapAddress: config.defaultGoreloAddress,
+    });
+    const defaultMailbox = directory.defaultMailbox;
+    if (!defaultMailbox) {
+      return {
+        key: "forwarding",
+        label: "Gorelo mailboxes",
+        status: "missing",
+        detail: "Choose one enabled Gorelo mailbox as the default route.",
+      };
+    }
+    if (!defaultMailbox.routable) {
+      return {
+        key: "forwarding",
+        label: "Gorelo mailboxes",
+        status: "missing",
+        detail:
+          "The default Gorelo mailbox is disabled or outside ALLOWED_FORWARD_DESTINATIONS.",
+      };
+    }
+
+    const result = await db
+      .prepare(
+        `SELECT action_json
+           FROM rules
+          WHERE enabled = 1
+            AND json_extract(action_json, '$.type')
+                  IN ('forward', 'forward_webhook')`,
+      )
+      .all<{ action_json: string }>();
+    let unavailable = 0;
+    for (const row of result.results) {
+      try {
+        const action = JSON.parse(row.action_json) as {
+          mailboxId?: unknown;
+          destination?: unknown;
+        };
+        if (typeof action.mailboxId === "string") {
+          if (!directory.byId.get(action.mailboxId)?.routable) unavailable += 1;
+        } else if (
+          typeof action.destination === "string" &&
+          !config.allowedForwardDestinations.has(
+            action.destination.trim().toLowerCase(),
+          )
+        ) {
+          unavailable += 1;
+        }
+      } catch {
+        unavailable += 1;
+      }
+    }
+    if (unavailable > 0) {
+      return {
+        key: "forwarding",
+        label: "Gorelo mailboxes",
+        status: "missing",
+        detail: `${String(unavailable)} enabled forwarding rule${unavailable === 1 ? " references" : "s reference"} an unavailable mailbox.`,
+      };
+    }
+    return {
+      key: "forwarding",
+      label: "Gorelo mailboxes",
+      status: "ready",
+      detail: `${defaultMailbox.name} (${defaultMailbox.address}) is the default; ${String(directory.mailboxes.filter((mailbox) => mailbox.routable).length)} routable mailbox${directory.mailboxes.filter((mailbox) => mailbox.routable).length === 1 ? " is" : "es are"} available.`,
+    };
+  } catch {
+    return {
+      key: "forwarding",
+      label: "Gorelo mailboxes",
+      status: "missing",
+      detail:
+        "Initialize the mailbox registry and choose an allow-listed default before enabling delivery.",
     };
   }
 }
@@ -207,12 +296,7 @@ export async function buildSetupStatus(
   const currentClients = await currentGoreloClientCount(env.DB);
   const checks: SetupCheck[] = [
     await databaseCheck(env.DB),
-    {
-      key: "forwarding",
-      label: "Forwarding route",
-      status: "ready",
-      detail: "A default Gorelo forwarding address is configured.",
-    },
+    await forwardingCheck(env.DB, config),
   ];
 
   const archiveRequired =

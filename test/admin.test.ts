@@ -257,13 +257,45 @@ describe("admin dashboard", () => {
     );
     expect(html).toContain('parsed.protocol!=="https:"');
     expect(html).toContain(
-      "Promise.allSettled([loadClientDirectory(force),loadWebhooks(force)])",
+      "Promise.allSettled([loadMailboxes(force),loadClientDirectory(force),loadWebhooks(force)])",
     );
     expect(html).toContain('if (name==="setup") void loadSetupExtensions()');
     expect(html).not.toContain("webhookSigningSecret");
     expect(html).not.toContain("webhookApiKey");
     expect(html).not.toContain("/api/v1/webhooks/test");
     expect(html).not.toContain("/api/v1/webhooks/send");
+  });
+
+  it("manages named Gorelo mailboxes and a versioned default destination", async () => {
+    const html = await adminResponse().text();
+
+    expect(html).toContain('id="goreloMailboxesHeading">Gorelo mailboxes</h3>');
+    expect(html).toContain('id="mailboxForm"');
+    expect(html).toContain('id="mailboxName"');
+    expect(html).toContain('id="mailboxAddress" type="email"');
+    expect(html).toContain('id="mailboxEnabled" type="checkbox"');
+    expect(html).toContain('id="actionMailboxId"');
+    expect(html).toContain('id="reviewMailboxId"');
+    expect(html).toContain('api("/api/v1/integrations/gorelo/mailboxes")');
+    expect(html).toContain(
+      'const body=current?{name,enabled,version:current.version}:{name,address:byId("mailboxAddress").value.trim(),enabled}',
+    );
+    expect(html).toContain(
+      'method:current?"PUT":"POST",body:JSON.stringify(body)',
+    );
+    expect(html).toContain(
+      'api("/api/v1/integrations/gorelo/mailboxes/default",{method:"PUT",body:JSON.stringify({mailboxId:mailbox.id,version:goreloMailboxSettingsVersion})})',
+    );
+    expect(html).toContain(
+      '"/api/v1/integrations/gorelo/mailboxes/"+encodeURIComponent(mailbox.id)+"?version="+encodeURIComponent(String(mailbox.version)),{method:"DELETE"}',
+    );
+    expect(html).toContain('byId("mailboxAddress").disabled=Boolean(mailbox)');
+    expect(html).toContain(
+      'if (route.startsWith("legacy:")) action.destination=route.slice(7); else if (route) action.mailboxId=route',
+    );
+    expect(html).toContain(
+      'if (reviewAction==="release") body.mailboxId=byId("reviewMailboxId").value',
+    );
   });
 
   it("configures forward and signed webhook actions in the guided rule builder", async () => {
@@ -333,6 +365,141 @@ describe("admin dashboard", () => {
     );
   });
 
+  it("starts parser-rule creation from every expanded Audit message", async () => {
+    const html = await adminResponse().text();
+    const auditReview = html.slice(
+      html.indexOf("function buildReviewBody"),
+      html.indexOf("function renderAuditDetail"),
+    );
+
+    expect(html).toContain(
+      '<dialog id="parserRuleDialog" class="review-dialog parser-rule-dialog"',
+    );
+    expect(html).toContain(
+      'id="continueParserRule" class="btn btn-primary primary" type="submit">Create disabled draft</button>',
+    );
+    expect(auditReview).toContain(
+      'node("button","Create rule from this email","btn btn-primary primary small")',
+    );
+    expect(auditReview).toContain(
+      "create.onclick=()=>openParserRuleFromAudit(event,create)",
+    );
+    expect(auditReview).toContain("if (includeDeliveries)");
+    expect(auditReview).toContain("if (audit.rawAvailable===true)");
+    expect(html).toContain(
+      'api("/api/v1/events/"+encodeURIComponent(eventId)+"/training-sample")',
+    );
+    expect(html).toContain(
+      'byId("parserRuleForm").elements.parserOutcome.value="forward"',
+    );
+    expect(html).toContain(
+      '<input type="radio" name="parserOutcome" value="forward_webhook">',
+    );
+    expect(html).toContain(
+      '<input type="radio" name="parserOutcome" value="create_ticket">',
+    );
+    expect(html).toContain(
+      '<input type="radio" name="parserOutcome" value="create_alert">',
+    );
+  });
+
+  it("arms, polls, and cancels short-lived parser captures without accepting private storage metadata", async () => {
+    const html = await adminResponse().text();
+
+    expect(html).toContain('id="captureBanner"');
+    expect(html).toContain('id="captureNextEmail"');
+    expect(html).toContain(
+      'byId("captureSenderMode").value=sender?"address":"any"',
+    );
+    expect(html).toContain('api("/api/v1/parser-captures")');
+    expect(html).toContain(
+      'api("/api/v1/parser-captures",{method:"POST",body:JSON.stringify({sourceEventId:eventKey(event),match,expiresInSeconds:900})})',
+    );
+    expect(html).toContain(
+      'api("/api/v1/parser-captures/"+encodeURIComponent(capture.id))',
+    );
+    expect(html).toContain(
+      'api("/api/v1/parser-captures/"+encodeURIComponent(capture.id)+"/cancel",{method:"POST",body:JSON.stringify({version:capture.version})})',
+    );
+    expect(html).toContain(
+      'const privateKeys=new Set(["objectKey","sampleObjectKey","sha256","sampleSha256","sampleSize","claimEventId"])',
+    );
+    expect(html).toContain(
+      'capture.state==="captured"&&capture.sampleAvailable&&capture.capturedEventId',
+    );
+    expect(html).toContain(
+      "stopCapturePoll(); activeParserCapture=null; parserRuleSample=null;",
+    );
+  });
+
+  it("loads audited and captured parser samples as selectable read-only text", async () => {
+    const html = await adminResponse().text();
+
+    expect(html).toContain("function loadTrainerSample(sample)");
+    expect(html).toContain('trainerSampleMode="audit"');
+    expect(html).toContain(
+      "Object.values(trainerSourceControls).forEach((id)=>{ byId(id).readOnly=true; })",
+    );
+    expect(html).toContain(
+      'byId("trainerBody").value=String(sample?.bodyText||"").slice(0,50000)',
+    );
+    expect(html).toContain('byId("useDryRunSample").classList.add("hidden")');
+    expect(html).toContain("if (sample) loadTrainerSample(sample)");
+    expect(html).toContain(
+      'control.addEventListener("select",()=>captureTrainerSelection(control))',
+    );
+    expect(html).toContain(
+      'setTimeout(()=>openTemplateTrainer(byId("teachParser"),training),0)',
+    );
+  });
+
+  it("keeps Audit-generated rules disabled until an operator reviews them", async () => {
+    const html = await adminResponse().text();
+
+    expect(html).toContain(
+      'id="generatedDraftBanner" class="draft-banner hidden" role="status"',
+    );
+    expect(html).toContain("The rule starts disabled.");
+    expect(html).toContain(
+      'const draft={name:("Parse "+cleanSubject).slice(0,120),description:"Drafted from audited email received "+formatDate(event.createdAt)+". Review before enabling.",priority:100,enabled:false',
+    );
+    expect(html).toContain("openEditor(draft,invoker,{generated:true})");
+    expect(html).toContain(
+      'byId("generatedDraftBanner").classList.toggle("hidden",!options.generated)',
+    );
+    expect(html).toContain('byId("ruleEnabled").checked=rule.enabled!==false');
+    expect(html).toContain("editorDirty=Boolean(options.generated)");
+  });
+
+  it("follows the default mailbox for Audit drafts unless an operator pins one", async () => {
+    const html = await adminResponse().text();
+
+    expect(html).toContain(
+      'id="parserMailboxGroup" class="form-field parser-route-field"',
+    );
+    expect(html).toContain(
+      '<select id="parserMailboxId"><option value="">Follow the default Gorelo mailbox</option></select>',
+    );
+    expect(html).toContain(
+      'select.append(makeOption("",defaultMailbox?"Follow default — "+defaultMailbox.name+" · "+defaultMailbox.address:fallbackAddress?"Follow default · "+fallbackAddress:"Follow the default Gorelo mailbox"))',
+    );
+    expect(html).toContain(
+      'goreloMailboxes.filter((mailbox)=>mailbox.routable).forEach((mailbox)=>select.append(makeOption(mailbox.id,"Pin to "+mailbox.name+" · "+mailbox.address+(mailbox.isDefault?" · current default":""))))',
+    );
+    expect(html).toContain(
+      'byId("parserRuleForm").elements.parserOutcome.value="forward"; populateParserMailboxSelect("")',
+    );
+    expect(html).toContain(
+      'const mailboxId=byId("parserMailboxId").value; if (type==="forward") return {type,bypassSpam:false,...(mailboxId?{mailboxId}:{})}',
+    );
+    expect(html).toContain(
+      'const forwards=outcome==="forward"||outcome==="forward_webhook"; byId("parserMailboxGroup").classList.toggle("hidden",!forwards)',
+    );
+    expect(html).toContain(
+      'byId("parserRuleForm").elements.parserOutcome.forEach((input)=>{ input.onchange=renderParserRuleDialog; })',
+    );
+  });
+
   it("renders learned templates with safe text nodes and semantic marks", async () => {
     const html = await adminResponse().text();
 
@@ -367,13 +534,13 @@ describe("admin dashboard", () => {
 
     expect(html).toContain("function resetTemplateTrainer()");
     expect(html).toContain(
-      'function trainerHasWork() { return Boolean(trainerCaptures.length||trainerSelection||byId("trainerKey").value.trim()||Object.values(trainerSourceControls).some((id)=>byId(id).value.length)); }',
+      'function trainerHasWork() { return Boolean(trainerCaptures.length||trainerSelection||byId("trainerKey").value.trim()||((trainerSampleMode==="manual"||trainerSampleMode==="dry_run")&&Object.values(trainerSourceControls).some((id)=>byId(id).value.length))); }',
     );
     expect(html).toContain(
       "trainerRequestVersion+=1; trainerSelection=null; trainerCaptures=[];",
     );
     expect(html).toContain(
-      'Object.values(trainerSourceControls).forEach((id)=>{ byId(id).value=""; })',
+      'Object.values(trainerSourceControls).forEach((id)=>{ byId(id).value=""; byId(id).readOnly=false; })',
     );
     expect(html).toContain('byId("trainerKey").value=""');
     expect(html).toContain(
@@ -545,7 +712,7 @@ describe("admin dashboard", () => {
       "API-only action: the original message is not forwarded.",
     );
     expect(html).toContain(
-      'const supportsDestination=forwards||type==="quarantine"',
+      'byId("actionMailboxGroup").classList.toggle("hidden",!forwards)',
     );
     expect(html).toContain("function collectGoreloAction(");
     expect(html).toContain("titleTemplate=readTemplate(");
@@ -706,7 +873,8 @@ describe("admin dashboard", () => {
   it("offers authenticated archived-original downloads in expanded audits", async () => {
     const html = await adminResponse().text();
 
-    expect(html).toContain("includeDeliveries&&audit.rawAvailable===true");
+    expect(html).toContain("if (includeDeliveries) { const actions=");
+    expect(html).toContain("if (audit.rawAvailable===true)");
     expect(html).toContain("Download archived original (.eml)");
     expect(html).toContain("function downloadAuditRaw(event,button)");
     expect(html).toContain(

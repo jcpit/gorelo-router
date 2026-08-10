@@ -11,6 +11,17 @@ interface FakeDatabase {
 function database(ruleRows: Record<string, unknown>[] = []): FakeDatabase {
   const insertBindings: unknown[][] = [];
   const outcomeBindings: unknown[][] = [];
+  let mailboxInitialized = false;
+  const mailboxRow = {
+    id: "00000000-0000-4000-8000-000000000001",
+    name: "Default Gorelo mailbox",
+    address: "tickets@gorelo.example",
+    enabled: 1,
+    is_default: 1,
+    version: 1,
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  };
   const db = {
     prepare(sql: string) {
       const statement = {
@@ -24,16 +35,41 @@ function database(ruleRows: Record<string, unknown>[] = []): FakeDatabase {
           return statement;
         },
         async all() {
-          return { results: ruleRows };
+          if (sql.includes("FROM rules")) return { results: ruleRows };
+          if (sql.includes("FROM gorelo_mailboxes")) {
+            return { results: mailboxInitialized ? [mailboxRow] : [] };
+          }
+          return { results: [] };
         },
         async run() {
+          if (sql.includes("INSERT INTO gorelo_mailbox_settings")) {
+            mailboxInitialized = true;
+          }
           return { success: true, meta: { changes: 1 } };
         },
         async first() {
+          if (sql.includes("COUNT(*) AS count FROM gorelo_mailboxes")) {
+            return { count: mailboxInitialized ? 1 : 0 };
+          }
+          if (sql.includes("FROM gorelo_mailbox_settings")) {
+            return mailboxInitialized
+              ? {
+                  default_mailbox_id: mailboxRow.id,
+                  version: 1,
+                  updated_at: mailboxRow.updated_at,
+                }
+              : null;
+          }
+          if (sql.includes("FROM gorelo_mailboxes m")) {
+            return mailboxInitialized ? mailboxRow : null;
+          }
           return null;
         },
       };
       return statement;
+    },
+    async batch(statements: D1PreparedStatement[]) {
+      return Promise.all(statements.map((statement) => statement.run()));
     },
   };
   return {
@@ -126,7 +162,7 @@ describe("Email Worker handler", () => {
       expect.any(Headers),
     );
     expect(mail.setReject).not.toHaveBeenCalled();
-    expect(fake.insertBindings[0]?.[12]).toBe("failed");
+    expect(fake.insertBindings[0]?.[14]).toBe("failed");
     expect(fake.outcomeBindings[0]?.[0]).toBe("forwarded");
   });
 
@@ -227,8 +263,8 @@ describe("Email Worker handler", () => {
       expect.any(Headers),
     );
     expect(fake.insertBindings[0]?.[11]).toBe("quarantine@example.com");
-    expect(fake.insertBindings[0]?.[12]).toBe("failed");
-    expect(fake.insertBindings[0]?.[13]).toContain("MAX_PARSE_BYTES");
+    expect(fake.insertBindings[0]?.[14]).toBe("failed");
+    expect(fake.insertBindings[0]?.[15]).toContain("MAX_PARSE_BYTES");
   });
 
   it("rejects a failed rule forward without an explicit fallback and keeps attribution", async () => {
@@ -254,7 +290,7 @@ describe("Email Worker handler", () => {
     expect(fake.insertBindings[0]?.[8]).toBe("forward");
     expect(fake.insertBindings[0]?.[9]).toBe("rule-1");
     expect(fake.insertBindings[0]?.[10]).toBe("Test rule");
-    expect(fake.insertBindings[0]?.[12]).toBe("failed");
+    expect(fake.insertBindings[0]?.[14]).toBe("failed");
     expect(fake.outcomeBindings.at(-1)?.[0]).toBe("failed");
   });
 });
