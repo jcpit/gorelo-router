@@ -195,7 +195,7 @@ function mapGoreloError(
     return new GoreloIntegrationError(
       503,
       "rate_limited",
-      "Gorelo temporarily rate limited the connection test",
+      "Gorelo temporarily rate limited the request",
       error.status,
       diagnostic,
     );

@@ -13,6 +13,7 @@ import {
   createClientAlias,
   createClientAliases,
   deleteClientAlias,
+  GoreloClientImportValidationError,
   importGoreloClients,
   listGoreloClients,
   MAX_CLIENT_ALIASES_PER_BATCH,
@@ -867,9 +868,27 @@ async function handleProtectedApi(
     if (request.method !== "POST") return problem(405, "Method not allowed");
     const startedAt = new Date();
     const clients = await fetchAllGoreloClients(env, config);
-    const result = await importGoreloClients(env.DB, clients, {
-      syncedAt: startedAt,
-    });
+    let result;
+    try {
+      result = await importGoreloClients(env.DB, clients, {
+        syncedAt: startedAt,
+      });
+    } catch (error) {
+      if (error instanceof GoreloClientImportValidationError) {
+        throw new HttpError(
+          422,
+          "Gorelo returned client data that could not be imported",
+          { code: "invalid_client_data", stage: "client-validation" },
+        );
+      }
+      console.error("Gorelo client directory persistence failed", {
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
+      throw new HttpError(503, "Gorelo client directory could not be saved", {
+        code: "storage_error",
+        stage: "client-storage",
+      });
+    }
     return json({
       import: {
         created: result.createdCount,

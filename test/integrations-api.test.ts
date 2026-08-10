@@ -105,6 +105,7 @@ function request(path: string, init: RequestInit = {}): Request {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   while (databases.length > 0) databases.pop()!.close();
 });
@@ -200,6 +201,157 @@ describe("Gorelo client directory API", () => {
       env,
     );
     expect(removed.status).toBe(204);
+  });
+
+  it("imports official Gorelo clients with blank optional metadata", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        StatusCode: 200,
+        IsSuccess: true,
+        Data: [
+          {
+            Id: 42,
+            Name: "Acme Managed Services",
+            BillingName: "",
+            AlternateName: " \t\u00a0 ",
+            Status: { Id: 1, Name: "\u00a0" },
+            IsDefault: false,
+            Domains: [
+              { Id: 1, Name: "" },
+              { Id: 2, Name: " \t\u00a0 " },
+              { Id: 3, Name: "ACME.EXAMPLE" },
+            ],
+          },
+        ],
+        DataContext: {
+          Pagination: {
+            TotalCount: 1,
+            NextCursor: null,
+            PreviousCursor: null,
+            HasMore: false,
+            HasPrevious: false,
+          },
+        },
+        Notifications: [],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const env = environment({ GORELO_API_KEY: GORELO_KEY });
+
+    const imported = await handleFetch(
+      request("/api/v1/integrations/gorelo/clients/import", {
+        method: "POST",
+      }),
+      env,
+    );
+
+    expect(imported.status).toBe(200);
+    await expect(imported.json()).resolves.toMatchObject({
+      import: { created: 1, updated: 0, total: 1 },
+    });
+
+    const directory = await handleFetch(
+      request("/api/v1/integrations/gorelo/clients?limit=100"),
+      env,
+    );
+    expect(directory.status).toBe(200);
+    await expect(directory.json()).resolves.toMatchObject({
+      total: 1,
+      clients: [
+        {
+          id: 42,
+          name: "Acme Managed Services",
+          billingName: null,
+          alternateName: null,
+          status: null,
+          domains: ["acme.example"],
+          stale: false,
+        },
+      ],
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("reports a redacted service error when client persistence fails", async () => {
+    const privateStorageError = "private D1 persistence details";
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.stubGlobal("fetch", async () =>
+      Response.json({
+        data: [{ id: 1, name: "Acme" }],
+        totalCount: 1,
+        nextCursor: null,
+        previousCursor: null,
+        hasMore: false,
+        hasPrevious: false,
+      }),
+    );
+    const env = environment({ GORELO_API_KEY: GORELO_KEY });
+    vi.spyOn(env.DB, "batch").mockRejectedValueOnce(
+      new Error(privateStorageError),
+    );
+
+    const response = await handleFetch(
+      request("/api/v1/integrations/gorelo/clients/import", {
+        method: "POST",
+      }),
+      env,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({
+      error: {
+        title: "Gorelo client directory could not be saved",
+        details: {
+          code: "storage_error",
+          stage: "client-storage",
+        },
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain(privateStorageError);
+    expect(JSON.stringify(body)).not.toContain("Internal server error");
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain(
+      privateStorageError,
+    );
+  });
+
+  it("reports invalid imported client data without reflecting its contents", async () => {
+    const privateClientName = "Sensitive\nClient";
+    vi.stubGlobal("fetch", async () =>
+      Response.json({
+        data: [{ id: 1, name: privateClientName }],
+        totalCount: 1,
+        nextCursor: null,
+        previousCursor: null,
+        hasMore: false,
+        hasPrevious: false,
+      }),
+    );
+    const env = environment({ GORELO_API_KEY: GORELO_KEY });
+
+    const response = await handleFetch(
+      request("/api/v1/integrations/gorelo/clients/import", {
+        method: "POST",
+      }),
+      env,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(422);
+    expect(body).toMatchObject({
+      error: {
+        title: "Gorelo returned client data that could not be imported",
+        details: {
+          code: "invalid_client_data",
+          stage: "client-validation",
+        },
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain(privateClientName);
+    expect(JSON.stringify(body)).not.toContain("Sensitive");
+    expect(JSON.stringify(body)).not.toContain("Internal server error");
   });
 
   it("returns a safe conflict for duplicate aliases", async () => {

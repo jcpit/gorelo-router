@@ -65,6 +65,10 @@ export interface GoreloClientImportResult {
   sync: GoreloClientSyncMetadata;
 }
 
+export class GoreloClientImportValidationError extends Error {
+  override readonly name = "GoreloClientImportValidationError";
+}
+
 export interface ClientAliasCreateInput {
   alias: string;
   scope?: string;
@@ -532,18 +536,28 @@ export async function importGoreloClients(
   items: readonly GoreloClientCatalogItem[],
   options: { syncedAt?: Date } = {},
 ): Promise<GoreloClientImportResult> {
-  if (!Array.isArray(items)) throw new Error("clients must be an array");
+  if (!Array.isArray(items)) {
+    throw new GoreloClientImportValidationError("clients must be an array");
+  }
   if (items.length > MAX_GORELO_DIRECTORY_CLIENTS_PER_IMPORT) {
-    throw new Error(
+    throw new GoreloClientImportValidationError(
       `client import must not exceed ${String(MAX_GORELO_DIRECTORY_CLIENTS_PER_IMPORT)} clients`,
     );
   }
-  const syncedAt = isoTimestamp(options.syncedAt, "client sync timestamp");
-  const validated = items.map(validateCatalogItem);
+  let syncedAt: string;
+  let validated: ValidatedCatalogItem[];
+  try {
+    syncedAt = isoTimestamp(options.syncedAt, "client sync timestamp");
+    validated = items.map(validateCatalogItem);
+  } catch (error) {
+    throw new GoreloClientImportValidationError(
+      error instanceof Error ? error.message : "client import is invalid",
+    );
+  }
   const identifiers = new Set<number>();
   for (const item of validated) {
     if (identifiers.has(item.id)) {
-      throw new Error(
+      throw new GoreloClientImportValidationError(
         `client import contains duplicate client ID ${String(item.id)}`,
       );
     }
@@ -570,7 +584,7 @@ export async function importGoreloClients(
       2,
     );
     if (totalBytes > MAX_GORELO_DIRECTORY_IMPORT_BYTES) {
-      throw new Error(
+      throw new GoreloClientImportValidationError(
         `client import must not exceed ${String(MAX_GORELO_DIRECTORY_IMPORT_BYTES)} UTF-8 bytes`,
       );
     }

@@ -336,6 +336,59 @@ describe("Gorelo requests", () => {
     });
   });
 
+  it("normalizes blank optional client fields from the official response", async () => {
+    const fetchMock = vi.fn<GoreloFetch>(async () =>
+      json({
+        StatusCode: 200,
+        IsSuccess: true,
+        Data: [
+          {
+            Id: 42,
+            Name: " \t\u00a0 ",
+            BillingName: "",
+            AlternateName: " \t ",
+            Status: { Id: 1, Name: "\u00a0" },
+            IsDefault: false,
+            Domains: [
+              { Id: 1, Name: "" },
+              { Id: 2, Name: " \t\u00a0 " },
+              { Id: 3, Name: "ACME.EXAMPLE" },
+            ],
+          },
+        ],
+        DataContext: {
+          Pagination: {
+            TotalCount: 1,
+            NextCursor: null,
+            PreviousCursor: null,
+            HasMore: false,
+            HasPrevious: false,
+          },
+        },
+        Notifications: [],
+      }),
+    );
+
+    await expect(client(fetchMock).listClients()).resolves.toEqual({
+      data: [
+        {
+          id: 42,
+          name: "Client 42",
+          billingName: null,
+          alternateName: null,
+          status: null,
+          isDefault: false,
+          domains: ["acme.example"],
+        },
+      ],
+      totalCount: 1,
+      nextCursor: null,
+      previousCursor: null,
+      hasMore: false,
+      hasPrevious: false,
+    });
+  });
+
   it("accepts Gorelo's canonical Guid and normalizes an unassigned agent client", async () => {
     const fetchMock = vi.fn<GoreloFetch>(async () =>
       json({

@@ -466,13 +466,14 @@ class SecureGoreloClient implements GoreloClient {
     return parsePage(payload, clientSchema, (item) => ({
       id: item.id,
       name: label(item.name, "Client", item.id),
-      billingName: item.billingName ?? null,
-      alternateName: item.alternateName ?? null,
-      status: item.status?.name ?? null,
+      billingName: optionalCatalogText(item.billingName),
+      alternateName: optionalCatalogText(item.alternateName),
+      status: optionalCatalogText(item.status?.name),
       isDefault: item.isDefault ?? false,
-      domains: (item.domains ?? []).flatMap((domain) =>
-        domain.name ? [domain.name.toLowerCase()] : [],
-      ),
+      domains: (item.domains ?? []).flatMap((domain) => {
+        const name = optionalCatalogText(domain.name);
+        return name ? [name.toLowerCase()] : [];
+      }),
     }));
   }
 
@@ -1139,5 +1140,11 @@ function label(
   entity: string,
   id: string | number,
 ): string {
-  return value || `${entity} ${id}`;
+  return optionalCatalogText(value) ?? `${entity} ${id}`;
+}
+
+function optionalCatalogText(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const normalized = value.trim();
+  return normalized || null;
 }
