@@ -6,7 +6,11 @@ import {
   readArchivedMessage,
   verifiedArchivedArrayBuffer,
 } from "./archive";
-import { ConfigurationError, loadConfig } from "./config";
+import {
+  ConfigurationError,
+  isAllowedMailboxDestination,
+  loadConfig,
+} from "./config";
 import {
   ClientAliasCanonicalConflictError,
   ClientAliasConflictError,
@@ -591,6 +595,7 @@ async function goreloMailboxDirectory(
 ): Promise<GoreloMailboxDirectory> {
   return loadGoreloMailboxDirectory(env.DB, {
     allowedAddresses: config.allowedForwardDestinations,
+    allowedDomains: config.allowedForwardDomains,
     bootstrapAddress: config.defaultGoreloAddress,
   });
 }
@@ -1220,10 +1225,11 @@ async function handleProtectedApi(
     if (request.method === "POST") {
       const input = mailboxCreateSchema.parse(await readJson(request));
       const address = normalizeGoreloMailboxAddress(input.address);
-      if (!config.allowedForwardDestinations.has(address)) {
+      if (!isAllowedMailboxDestination(address, config)) {
+        const domain = address.slice(address.lastIndexOf("@") + 1);
         throw new HttpError(
           400,
-          "Add this mailbox address to ALLOWED_FORWARD_DESTINATIONS before registering it",
+          `Mailbox domain ${domain} is not allowed. Add it to ALLOWED_FORWARD_DOMAINS or add the full address to ALLOWED_FORWARD_DESTINATIONS`,
         );
       }
       try {
@@ -1257,7 +1263,7 @@ async function handleProtectedApi(
     if (!target.allowlisted) {
       throw new HttpError(
         400,
-        "The selected mailbox is outside ALLOWED_FORWARD_DESTINATIONS",
+        "The selected mailbox is outside the allowed domain and address policy",
       );
     }
     const result = await setDefaultGoreloMailbox(
@@ -1958,7 +1964,7 @@ async function handleProtectedApi(
     if (selectedMailbox && !selectedMailbox.routable) {
       throw new HttpError(
         400,
-        "The selected Gorelo mailbox is disabled or outside the deployment allow-list",
+        "The selected Gorelo mailbox is disabled or outside the allowed destination policy",
       );
     }
     const destination =

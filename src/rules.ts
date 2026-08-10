@@ -366,11 +366,11 @@ function resolvedGoreloMailbox(
   }
   if (!mailbox.allowlisted) {
     throw new RuleActionError(
-      "The selected Gorelo mailbox is outside the deployment allow-list",
+      "The selected Gorelo mailbox is outside the allowed destination policy",
     );
   }
   return {
-    destination: ensureAllowedDestination(mailbox.address, config),
+    destination: mailbox.address,
     destinationMailboxId: mailbox.id,
     destinationMailboxName: mailbox.name,
   };

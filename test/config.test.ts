@@ -11,11 +11,12 @@ function env(overrides: Partial<Env> = {}): Env {
 }
 
 describe("runtime configuration", () => {
-  it("normalizes and allow-lists core destinations", () => {
+  it("normalizes address and domain forwarding policies", () => {
     const result = loadConfig(
       env({
         QUARANTINE_ADDRESS: "Quarantine@Example.com",
         FAILURE_FORWARD_ADDRESS: "Failures@Example.com",
+        ALLOWED_FORWARD_DOMAINS: " Managed.Example , OTHER.example ",
       }),
     );
     expect(result.defaultGoreloAddress).toBe("tickets@gorelo.example");
@@ -25,6 +26,9 @@ describe("runtime configuration", () => {
         "quarantine@example.com",
         "failures@example.com",
       ]),
+    );
+    expect(result.allowedForwardDomains).toEqual(
+      new Set(["gorelo.example", "managed.example", "other.example"]),
     );
     expect(result.quarantineMode).toBe("mailbox");
     expect(result.archiveMode).toBe("quarantine");
@@ -73,6 +77,23 @@ describe("runtime configuration", () => {
         env({ ALLOWED_FORWARD_DESTINATIONS: "bad..addr@example.com" }),
       ),
     ).toThrow("ALLOWED_FORWARD_DESTINATIONS");
+  });
+
+  it("rejects malformed forwarding domains instead of broadening matches", () => {
+    for (const domain of [
+      "*.example.com",
+      "alerts@example.com",
+      "https://example.com",
+      "example..com",
+      "example.com.",
+      "127.0.0.1",
+      "münich.example",
+      "localhost",
+    ]) {
+      expect(() =>
+        loadConfig(env({ ALLOWED_FORWARD_DOMAINS: domain })),
+      ).toThrow("ALLOWED_FORWARD_DOMAINS");
+    }
   });
 
   it("rejects invalid review modes and release senders", () => {

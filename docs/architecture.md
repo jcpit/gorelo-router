@@ -65,12 +65,14 @@ changing it affects unmatched mail and default-following rules, but not pinned
 rules. Legacy actions with a literal `destination` remain valid for
 compatibility and are resolved without silently rewriting their JSON.
 
-The registry is constrained by `ALLOWED_FORWARD_DESTINATIONS`; an enabled
-mailbox outside that deployment allow-list is not routable. Cloudflare's
-verified-destination control remains independent and is also required. The
-processing event snapshots the resolved mailbox ID and name alongside the
-address so later renames or default changes do not alter historical audit
-meaning.
+The registry authorizes a named mailbox when its exact domain is the domain of
+`DEFAULT_GORELO_ADDRESS` or an entry in `ALLOWED_FORWARD_DOMAINS`, or when its
+complete address is an `ALLOWED_FORWARD_DESTINATIONS` override. Domain matching
+does not include subdomains. Legacy literal destinations still require an
+exact-address entry. Cloudflare's verified-destination control remains
+independent and is also required for the complete address. The processing event
+snapshots the resolved mailbox ID and name alongside the address so later
+renames or default changes do not alter historical audit meaning.
 
 ## Quarantine modes and review states
 
@@ -90,7 +92,7 @@ Every mutation increments `version`; stale requests receive `409 Conflict`. Revi
 
 ## Release delivery and provenance
 
-Release uses Cloudflare Email Sending through the optional, restricted `RELEASE_EMAIL` `send_email` binding and requires `RELEASE_FROM_ADDRESS`. The production scaffold omits both so forward-only deployments have no Email Sending prerequisite; operators add them together when enabling release. The destination must also pass the application's `ALLOWED_FORWARD_DESTINATIONS` check. Cloudflare documents both the [Workers sending API](https://developers.cloudflare.com/email-service/api/send-emails/workers-api/) and [binding sender/recipient restrictions](https://developers.cloudflare.com/email-service/configuration/send-bindings/).
+Release uses Cloudflare Email Sending through the optional, restricted `RELEASE_EMAIL` `send_email` binding and requires `RELEASE_FROM_ADDRESS`. The production scaffold omits both so forward-only deployments have no Email Sending prerequisite; operators add them together when enabling release. The selected named mailbox must pass the application's domain-or-address authorization, and its complete address must appear in the Cloudflare send binding. Cloudflare documents both the [Workers sending API](https://developers.cloudflare.com/email-service/api/send-emails/workers-api/) and [binding sender/recipient restrictions](https://developers.cloudflare.com/email-service/configuration/send-bindings/).
 
 The archived MIME body and attachments are retained, but obsolete relay/authentication headers are removed. The released message uses service-controlled `From: Gorelo Router <RELEASE_FROM_ADDRESS>` and `To`; original visible addresses become `X-Mail-Parser-Original-From` and `X-Mail-Parser-Original-To`; original envelope provenance and the release ID are added as `X-` headers. If no original `Reply-To` exists, the original envelope sender becomes `Reply-To`. This gives the outbound message an authenticated service identity without erasing provenance.
 
@@ -208,9 +210,10 @@ plan before the Docker deployment is run.
 - Trusted envelope-sender domains only subtract score; they are not authentication or allow-list decisions. Dynamic client mapping must therefore use a dedicated parser recipient plus independently authenticated upstream source; an exact alias prevents fuzzy misrouting but does not establish trust.
 - A matching forward, webhook, ticket, or alert rule cannot bypass non-forward global spam policy without explicit `bypassSpam: true`.
 - Failure routing uses `FAILURE_FORWARD_ADDRESS`, then `QUARANTINE_ADDRESS`, and never silently falls through to normal Gorelo delivery.
-- Named mailbox and legacy literal destinations are validated in the
-  application against `ALLOWED_FORWARD_DESTINATIONS` and constrained again by
-  Cloudflare bindings/verified addresses.
+- Named mailboxes are validated against the exact default domain, an
+  `ALLOWED_FORWARD_DOMAINS` entry, or an exact-address override. Legacy literal
+  destinations require `ALLOWED_FORWARD_DESTINATIONS`. Cloudflare
+  bindings/verified addresses independently constrain the complete address.
 - User regular expressions are excluded; wildcard matching uses a bounded bitset automaton.
 - Admin tokens are compared through SHA-256 digests and retained only in dashboard memory.
 - Webhook URLs are centrally registered against an exact host allowlist; rule content cannot choose a URL.

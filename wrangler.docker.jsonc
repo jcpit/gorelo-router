@@ -38,7 +38,8 @@
   ],
   "vars": {
     "DEFAULT_GORELO_ADDRESS": "replace-with-your-gorelo-forwarding-address@example.com",
-    "ALLOWED_FORWARD_DESTINATIONS": "replace-with-your-gorelo-forwarding-address@example.com",
+    "ALLOWED_FORWARD_DOMAINS": "",
+    "ALLOWED_FORWARD_DESTINATIONS": "",
     "RELEASE_FROM_ADDRESS": "replace-with-release-sender@example.com",
     "QUARANTINE_MODE": "internal",
     "ARCHIVE_MODE": "quarantine",

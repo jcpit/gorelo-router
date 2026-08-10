@@ -86,19 +86,20 @@ Wildcards are not regular expressions; the implementation uses a bounded bitset 
 - `{"type":"forward","mailboxId":"..."}` pins the rule to a registered
   named Gorelo mailbox by stable ID.
 - `{"type":"forward","destination":"..."}` remains supported for legacy
-  rules and selects an allow-listed, Cloudflare-verified literal address. The
-  guided editor offers either default-following behavior or a pinned
-  `mailboxId`; it does not create new literal destinations.
+  rules and selects a literal address listed exactly in
+  `ALLOWED_FORWARD_DESTINATIONS` and verified by Cloudflare. The guided editor
+  offers either default-following behavior or a pinned `mailboxId`; it does not
+  create new literal destinations.
 - `{"type":"forward","bypassSpam":true}` explicitly bypasses global spam handling after that rule matches.
 - `{"type":"forward_webhook",...}` keeps the same primary email forward, but first atomically stores the event and pending delivery snapshot. After Cloudflare accepts the forward, it asynchronously sends a signed, idempotent webhook containing explicitly mapped variables. It never turns the webhook URL or signing secret into rule data.
 - `{"type":"create_ticket",...}` creates one structured Gorelo ticket through `POST /v1/tickets`. It is API-only and does not forward the original email.
 - `{"type":"create_alert",...}` creates one external Gorelo alert through `POST /v1/alerts/`. It is API-only and does not forward the original email.
 - `{"type":"quarantine"}` creates a reviewable R2-backed hold when `QUARANTINE_MODE=internal`; its rule destination is ignored because the release destination is chosen during review.
-- In `QUARANTINE_MODE=mailbox`, `{"type":"quarantine"}` forwards to `QUARANTINE_ADDRESS` after its audit insert, while `{"type":"quarantine","destination":"..."}` selects another allow-listed, Cloudflare-verified review mailbox.
+- In `QUARANTINE_MODE=mailbox`, `{"type":"quarantine"}` forwards to `QUARANTINE_ADDRESS` after its audit insert, while `{"type":"quarantine","destination":"..."}` selects another exact-address-authorized, Cloudflare-verified review mailbox.
 - `{"type":"drop"}` silently accepts and discards the message. Use only for high-confidence blocks.
 - `{"type":"reject","reason":"..."}` returns an SMTP rejection to the sending server.
 
-Mailbox quarantine is not an in-app hold: the review mailbox owns disposition and release. `ARCHIVE_MODE=quarantine` or `all` may retain an audit copy, but only internal quarantine items are actionable in the dashboard. Internal release requires an allow-listed Gorelo destination selected by an authenticated operator.
+Mailbox quarantine is not an in-app hold: the review mailbox owns disposition and release. `ARCHIVE_MODE=quarantine` or `all` may retain an audit copy, but only internal quarantine items are actionable in the dashboard. Internal release requires an authorized named Gorelo mailbox selected by an authenticated operator and an exact matching Cloudflare send-binding destination.
 
 Forwarding remains the normal choice when Gorelo should receive the original sender, MIME structure, and attachments. API-only actions send a bounded structured JSON request instead. They require `GORELO_API_KEY`, private `MESSAGE_ARCHIVE`, and an imported current client directory. Gorelo's [API overview](https://help.gorelo.io/api-overview) documents scoped `X-API-Key` authentication and links the regional [Australia](https://api.aue.gorelo.io/swagger) and [US](https://api.usw.gorelo.io/swagger) Swagger references.
 
@@ -114,13 +115,17 @@ The guided editor makes the choice explicit: follow the current default by
 omitting both destination fields, or pin the rule to one stable `mailboxId`.
 Changing the default affects unmatched mail and default-following rules; it
 does not change a pinned rule. Renaming a mailbox also preserves the reference.
-A disabled, missing, or no-longer-allow-listed mailbox cannot be routed to and
+A disabled, missing, or no-longer-authorized mailbox cannot be routed to and
 must be corrected before its rules are enabled.
 
-The registry is not an escape hatch around deployment controls. Every mailbox
-address and every legacy literal `destination` must appear in
-`ALLOWED_FORWARD_DESTINATIONS` and be independently verified by Cloudflare.
-`mailboxId` and `destination` are mutually exclusive on the same action.
+The registry is not an escape hatch around deployment controls. A named
+mailbox is authorized when its exact domain is the domain of
+`DEFAULT_GORELO_ADDRESS` or an entry in `ALLOWED_FORWARD_DOMAINS`, or when its
+complete address appears in `ALLOWED_FORWARD_DESTINATIONS`. Domain entries do
+not authorize subdomains. Every legacy literal `destination` still requires an
+exact `ALLOWED_FORWARD_DESTINATIONS` entry. Every complete forwarding address
+must also be independently verified by Cloudflare. `mailboxId` and
+`destination` are mutually exclusive on the same action.
 
 ### Webhook extraction fields
 

@@ -11,6 +11,7 @@ export function config(overrides: Partial<RuntimeConfig> = {}): RuntimeConfig {
     quarantineMode: "mailbox",
     archiveMode: "quarantine",
     allowedForwardDestinations: new Set([defaultAddress, quarantineAddress]),
+    allowedForwardDomains: new Set(["gorelo.example"]),
     spamThreshold: 5,
     spamAction: "quarantine",
     spamKeywords: [],

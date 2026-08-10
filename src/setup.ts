@@ -75,6 +75,7 @@ async function forwardingCheck(
   try {
     const directory = await loadGoreloMailboxDirectory(db, {
       allowedAddresses: config.allowedForwardDestinations,
+      allowedDomains: config.allowedForwardDomains,
       bootstrapAddress: config.defaultGoreloAddress,
     });
     const defaultMailbox = directory.defaultMailbox;
@@ -92,7 +93,7 @@ async function forwardingCheck(
         label: "Gorelo mailboxes",
         status: "missing",
         detail:
-          "The default Gorelo mailbox is disabled or outside ALLOWED_FORWARD_DESTINATIONS.",
+          "The default Gorelo mailbox is disabled or outside the allowed domain and address policy.",
       };
     }
 
@@ -146,7 +147,7 @@ async function forwardingCheck(
       label: "Gorelo mailboxes",
       status: "missing",
       detail:
-        "Initialize the mailbox registry and choose an allow-listed default before enabling delivery.",
+        "Initialize the mailbox registry and choose an allowed, enabled default before enabling delivery.",
     };
   }
 }

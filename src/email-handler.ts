@@ -741,6 +741,7 @@ export async function handleEmail(
       listRules(env.DB),
       loadGoreloMailboxDirectory(env.DB, {
         allowedAddresses: config.allowedForwardDestinations,
+        allowedDomains: config.allowedForwardDomains,
         bootstrapAddress: config.defaultGoreloAddress,
       }),
     ]);

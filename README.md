@@ -15,8 +15,8 @@ It includes:
 - ordered D1 rules with `all`/`any` matching over envelope, header, size, body, attachment, and local spam-score facts;
 - forward, R2-backed internal hold, review-mailbox quarantine, drop, and SMTP-reject actions;
 - named Gorelo mailboxes with one persistent default, stable rule references,
-  destination allow-listing, and Cloudflare's independent verified-destination
-  check;
+  domain-or-address destination authorization, and Cloudflare's independent
+  verified-destination check;
 - conservative subject-only spam scoring, initially configured for observation rather than blocking;
 - a responsive [Tabler](https://tabler.io/admin-template)-based dashboard at `/admin` with Rules, Quarantine, Audit, Dry run, and Setup workspaces;
 - bounded message audit detail in D1, optional raw RFC 5322 retention in private R2, and scheduled cleanup;
@@ -60,13 +60,16 @@ matches, non-spam mail follows the mailbox currently marked default. Changing
 the default therefore affects unmatched mail and default-following rules, but
 never repoints a rule pinned to a mailbox ID.
 
-Legacy rules containing `action.destination` remain supported. Every mailbox
-or legacy destination address must be both listed in
-`ALLOWED_FORWARD_DESTINATIONS` and independently verified as a Cloudflare Email
-Routing destination. `DEFAULT_GORELO_ADDRESS` is used only to create the first
-registry mailbox and make it the initial default. Once the registry exists, a
-later environment-variable change never silently rewrites its persisted name,
-address, or default selection.
+`DEFAULT_GORELO_ADDRESS` is used only to create the first registry mailbox and
+make it the initial default. Its exact domain is implicitly authorized for
+named mailboxes; add other exact domains to `ALLOWED_FORWARD_DOMAINS` when a
+deployment uses more than one Gorelo forwarding domain. Domain matching does
+not include subdomains. `ALLOWED_FORWARD_DESTINATIONS` remains an exact-address
+override and is still required by legacy rules containing
+`action.destination`. Every actual forwarding address must also be
+independently verified as a Cloudflare Email Routing destination. Once the
+registry exists, a later environment-variable change never silently rewrites
+its persisted name, address, or default selection.
 
 A `forward_webhook` rule keeps the original-message forward as its primary
 external action. Before requesting the forward, the Worker atomically stores
@@ -77,7 +80,7 @@ Use `create_ticket` or `create_alert` only when the extra field-level control is
 
 `QUARANTINE_MODE` controls what a quarantine decision means:
 
-- `internal` is a true hold. The Worker writes the original message to private R2, creates the D1 review item synchronously, and does not forward it. An administrator can inspect a safe text view, download the EML, dismiss it, or release it to an allow-listed Gorelo address.
+- `internal` is a true hold. The Worker writes the original message to private R2, creates the D1 review item synchronously, and does not forward it. An administrator can inspect a safe text view, download the EML, dismiss it, or release it to an authorized named Gorelo mailbox.
 - `mailbox` synchronously creates its audit event, then forwards to `QUARANTINE_ADDRESS` (or an explicit quarantine-rule destination). It is not an in-app hold; the mailbox owns review and release. `ARCHIVE_MODE=quarantine` or `all` can still retain an audit copy, but the dashboard deliberately does not present mailbox-mode items as releasable holds.
 
 ## Prerequisites
@@ -174,11 +177,15 @@ an ordinary `docker compose up`.
    - Replace `*@example.com` in the top-level `addresses` list with the exact
      apex or ingestion subdomain that should be caught and sent to this Worker,
      for example `*@alerts.example.com`.
-   - Replace the scaffold Gorelo address in `DEFAULT_GORELO_ADDRESS` and list
-     every intended Gorelo/review address in
-     `ALLOWED_FORWARD_DESTINATIONS`. The default value bootstraps the first
-     named mailbox only; later mailbox/default changes are made in Setup and
-     are not silently resynchronized from this variable.
+   - Replace the scaffold Gorelo address in `DEFAULT_GORELO_ADDRESS`. Its exact
+     domain is automatically authorized for any number of named mailboxes. Add
+     other exact Gorelo forwarding domains to `ALLOWED_FORWARD_DOMAINS`, and
+     use `ALLOWED_FORWARD_DESTINATIONS` for exact-address exceptions and any
+     legacy literal forward, quarantine, or release destination. Configured
+     `QUARANTINE_ADDRESS` and `FAILURE_FORWARD_ADDRESS` values authorize their
+     own exact addresses. The default value bootstraps the first named mailbox
+     only; later mailbox/default changes are made in Setup and are not silently
+     resynchronized from this variable.
    - Select the correct `GORELO_API_BASE_URL` region.
    - Leave `workers_dev` and `preview_urls` set to `false`.
    - Keep `SPAM_ACTION=forward` until real scores have been reviewed.
@@ -201,8 +208,9 @@ an ordinary `docker compose up`.
 
    In **Compute → Email Service → Email Routing → Destination Addresses**, also
    add and verify every Gorelo or review address the Worker may forward to.
-   Cloudflare's verified-destination control is independent of
-   `ALLOWED_FORWARD_DESTINATIONS`.
+   Cloudflare's verified-destination control is independent of the Router's
+   domain/address authorization. Registering a named mailbox does not verify it
+   with Cloudflare.
 
 6. Automated release is optional. To enable it, onboard the sending domain
    under **Compute → Email Service → Email Sending**, then add this top-level
@@ -220,7 +228,11 @@ an ordinary `docker compose up`.
 
    Also add `"RELEASE_FROM_ADDRESS": "gorelo-router@your-domain.example"` inside the existing `vars` object.
 
-   The server-side binding restrictions are separate from `ALLOWED_FORWARD_DESTINATIONS`; every selectable release destination must appear in both that application allow-list and `send_email.allowed_destination_addresses`. The sender must belong to a domain onboarded to Email Service. See [Email Sending from Workers](https://developers.cloudflare.com/email-service/api/send-emails/workers-api/) and [send binding restrictions](https://developers.cloudflare.com/email-service/configuration/send-bindings/).
+   The server-side binding restrictions are separate from the Router's
+   domain/address authorization; every selectable release destination must be
+   authorized by the application and appear exactly in
+   `send_email.allowed_destination_addresses`. The sender must belong to a
+   domain onboarded to Email Service. See [Email Sending from Workers](https://developers.cloudflare.com/email-service/api/send-emails/workers-api/) and [send binding restrictions](https://developers.cloudflare.com/email-service/configuration/send-bindings/).
 
 7. The first deployment automatically generates `ADMIN_API_TOKEN` with
    `openssl rand -base64 48`. It deploys the Worker code and secret together
@@ -529,7 +541,7 @@ Every `/api/v1` endpoint requires `Authorization: Bearer <ADMIN_API_TOKEN>`. `/h
 | `GET`    | `/api/v1/setup/status`                                     | Read non-secret deployment/integration readiness           |
 | `POST`   | `/api/v1/integrations/gorelo/test`                         | Seven bounded key/selector-catalog diagnostic probes       |
 | `GET`    | `/api/v1/integrations/gorelo/mailboxes`                    | List named mailboxes, default, and routing posture         |
-| `POST`   | `/api/v1/integrations/gorelo/mailboxes`                    | Register an allow-listed Gorelo forwarding mailbox         |
+| `POST`   | `/api/v1/integrations/gorelo/mailboxes`                    | Register an authorized Gorelo forwarding mailbox           |
 | `PUT`    | `/api/v1/integrations/gorelo/mailboxes/default`            | Version-change the persistent default mailbox              |
 | `PUT`    | `/api/v1/integrations/gorelo/mailboxes/:id`                | Version-rename or enable/disable a mailbox                 |
 | `DELETE` | `/api/v1/integrations/gorelo/mailboxes/:id?version=…`      | Version-delete an unreferenced, non-default mailbox        |
@@ -585,11 +597,14 @@ Alias batches accept one customer and one to 100 independently scoped values. Th
 Mailbox addresses are normalized and immutable after registration, while the
 display name and enabled state use optimistic versions. The default cannot be
 disabled or deleted, and a mailbox referenced by a rule cannot be disabled or
-deleted until those rules are repointed. Every registered address must already
-be in `ALLOWED_FORWARD_DESTINATIONS`; duplicate names/addresses, stale versions,
-and protected mutations fail without redirecting any rule. Changing the default
-affects only unmatched mail and forwarding rules that intentionally omit both a
-mailbox ID and a legacy literal destination.
+deleted until those rules are repointed. A registered address is permitted when
+its exact domain is the `DEFAULT_GORELO_ADDRESS` domain or appears in
+`ALLOWED_FORWARD_DOMAINS`, or when the complete address appears in
+`ALLOWED_FORWARD_DESTINATIONS`. Domain entries never cover subdomains.
+Duplicate names/addresses, stale versions, and protected mutations fail without
+redirecting any rule. Changing the default affects only unmatched mail and
+forwarding rules that intentionally omit both a mailbox ID and a legacy literal
+destination.
 
 The training-sample endpoint never returns raw MIME, HTML, attachments, an R2
 key, or a digest. It prefers an unexpired temporary capture, then an
@@ -676,11 +691,13 @@ secondary safeguards and align audit retention with client agreements.
 - Invalid runtime configuration is rejected directly because a partially loaded failure route cannot be trusted.
 - With no failure/quarantine destination—or when fallback forwarding also fails—the Worker returns an SMTP rejection instead of silently routing an uninspected message into Gorelo.
 - An internal hold waits for both R2 and D1; if either cannot be committed, the Worker deletes any partial object and enters the failure/reject path instead of silently losing the message. Forward and mailbox-quarantine paths also synchronously create their D1 event before asking Cloudflare to forward; a webhook path atomically creates its pending delivery in the same batch. The event begins in an unconfirmed failure state and is updated only after Cloudflare accepts the forward request. That records the handoff attempt, but it still cannot prove final delivery by the downstream mailbox.
-- Named mailbox and legacy forward/quarantine destinations are checked against
-  `ALLOWED_FORWARD_DESTINATIONS` when configured or saved and again when
-  evaluated. A missing, disabled, or no-longer-allow-listed selected mailbox
-  fails closed; it does not fall through to the default. Cloudflare must
-  independently verify every address.
+- Named mailboxes are checked against the exact default domain,
+  `ALLOWED_FORWARD_DOMAINS`, or the exact-address override in
+  `ALLOWED_FORWARD_DESTINATIONS` when saved and again when evaluated. Legacy
+  literal forward/quarantine destinations still require an exact
+  `ALLOWED_FORWARD_DESTINATIONS` entry. A missing, disabled, or no-longer
+  authorized selected mailbox fails closed; it does not fall through to the
+  default. Cloudflare must independently verify every address.
 - Teaching capture is ancillary to delivery: an unavailable match lookup adds
   only a safe audit warning, while a claimed-message MIME or sample-storage
   failure records a bounded capture error. Neither replaces the message's

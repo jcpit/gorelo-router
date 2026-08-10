@@ -52,6 +52,27 @@ function isValidEmailAddress(value: string): boolean {
   );
 }
 
+function isValidEmailDomain(value: string): boolean {
+  const labels = value.split(".");
+  return (
+    value.length <= 253 &&
+    labels.length >= 2 &&
+    /[a-z]/i.test(labels.at(-1) ?? "") &&
+    labels.every(
+      (label) =>
+        label.length > 0 &&
+        label.length <= 63 &&
+        DOMAIN_LABEL_PATTERN.test(label) &&
+        !label.startsWith("-") &&
+        !label.endsWith("-"),
+    )
+  );
+}
+
+function emailDomain(address: string): string {
+  return address.slice(address.lastIndexOf("@") + 1);
+}
+
 function normalizedEmail(
   value: string | undefined,
   name: string,
@@ -228,6 +249,8 @@ export function loadConfig(env: Env): RuntimeConfig {
   const allowedForwardDestinations = new Set(
     csv(env.ALLOWED_FORWARD_DESTINATIONS),
   );
+  const allowedForwardDomains = new Set(csv(env.ALLOWED_FORWARD_DOMAINS));
+  allowedForwardDomains.add(emailDomain(defaultGoreloAddress));
   allowedForwardDestinations.add(defaultGoreloAddress);
   if (failureForwardAddress) {
     allowedForwardDestinations.add(failureForwardAddress);
@@ -244,6 +267,14 @@ export function loadConfig(env: Env): RuntimeConfig {
     }
   }
 
+  for (const domain of allowedForwardDomains) {
+    if (!isValidEmailDomain(domain)) {
+      throw new ConfigurationError(
+        `ALLOWED_FORWARD_DOMAINS contains an invalid domain: ${domain}`,
+      );
+    }
+  }
+
   return {
     defaultGoreloAddress,
     ...(quarantineAddress ? { quarantineAddress } : {}),
@@ -251,6 +282,7 @@ export function loadConfig(env: Env): RuntimeConfig {
     ...(releaseFromAddress ? { releaseFromAddress } : {}),
     quarantineMode,
     archiveMode,
+    allowedForwardDomains,
     allowedForwardDestinations,
     spamThreshold: integerSetting(
       env.SPAM_THRESHOLD,
@@ -312,4 +344,20 @@ export function loadConfig(env: Env): RuntimeConfig {
       30_000,
     ),
   };
+}
+
+/** Named mailboxes may use an exact address override or any local part on an approved domain. */
+export function isAllowedMailboxDestination(
+  address: string,
+  config: Pick<
+    RuntimeConfig,
+    "allowedForwardDestinations" | "allowedForwardDomains"
+  >,
+): boolean {
+  const normalized = address.trim().toLowerCase();
+  return (
+    isValidEmailAddress(normalized) &&
+    (config.allowedForwardDestinations.has(normalized) ||
+      config.allowedForwardDomains.has(emailDomain(normalized)))
+  );
 }

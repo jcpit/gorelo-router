@@ -95,8 +95,7 @@ function environment(db: D1Database, overrides: Partial<Env> = {}): Env {
     DB: db,
     ADMIN_API_TOKEN: ADMIN_TOKEN,
     DEFAULT_GORELO_ADDRESS: "tickets@gorelo.example",
-    ALLOWED_FORWARD_DESTINATIONS:
-      "tickets@gorelo.example,alerts@gorelo.example,ops@gorelo.example",
+    ALLOWED_FORWARD_DESTINATIONS: "tickets@gorelo.example",
     ...overrides,
   };
 }
@@ -200,33 +199,74 @@ describe("Gorelo mailbox API", () => {
     await expect(row).resolves.toEqual({ count: 1 });
   });
 
-  it("gates creation by the deployment allowlist and reports duplicates", async () => {
+  it("allows the default domain, configured domains, and exact-address overrides", async () => {
     const db = database();
+    const sameDomain = await createMailbox(db, {
+      name: "Alert intake",
+      address: " Alerts@Gorelo.Example ",
+    });
+    expect(sameDomain).toMatchObject({
+      name: "Alert intake",
+      address: "alerts@gorelo.example",
+      enabled: true,
+      isDefault: false,
+    });
+
+    const configuredDomain = await createMailbox(
+      db,
+      {
+        name: "Managed intake",
+        address: "notifications@managed.example",
+      },
+      { ALLOWED_FORWARD_DOMAINS: " MANAGED.EXAMPLE " },
+    );
+    expect(configuredDomain).toMatchObject({
+      address: "notifications@managed.example",
+    });
+
+    const exactOverride = await createMailbox(
+      db,
+      {
+        name: "External intake",
+        address: "external@outside.example",
+      },
+      {
+        ALLOWED_FORWARD_DESTINATIONS:
+          "tickets@gorelo.example,external@outside.example",
+      },
+    );
+    expect(exactOverride).toMatchObject({
+      address: "external@outside.example",
+    });
+
     const denied = await handleFetch(
       request(MAILBOXES_PATH, {
         method: "POST",
         body: JSON.stringify({
           name: "Outside route",
-          address: "outside@gorelo.example",
+          address: "outside@unapproved.example",
         }),
       }),
       environment(db),
     );
     expect(denied.status).toBe(400);
     await expect(denied.json()).resolves.toMatchObject({
-      error: { title: expect.stringContaining("ALLOWED_FORWARD_DESTINATIONS") },
+      error: {
+        title: expect.stringContaining("ALLOWED_FORWARD_DOMAINS"),
+      },
     });
 
-    const created = await createMailbox(db, {
-      name: "Alert intake",
-      address: " Alerts@Gorelo.Example ",
-    });
-    expect(created).toMatchObject({
-      name: "Alert intake",
-      address: "alerts@gorelo.example",
-      enabled: true,
-      isDefault: false,
-    });
+    const subdomain = await handleFetch(
+      request(MAILBOXES_PATH, {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Unapproved subdomain",
+          address: "alerts@sub.managed.example",
+        }),
+      }),
+      environment(db, { ALLOWED_FORWARD_DOMAINS: "managed.example" }),
+    );
+    expect(subdomain.status).toBe(400);
 
     const duplicate = await handleFetch(
       request(MAILBOXES_PATH, {
@@ -339,7 +379,7 @@ describe("Gorelo mailbox API", () => {
     expect(deleteNewDefault.status).toBe(409);
   });
 
-  it("accepts only registered, enabled, allowlisted mailbox rule targets", async () => {
+  it("accepts registered enabled mailbox rule targets without exact-address entries", async () => {
     const db = database();
     await handleFetch(request(MAILBOXES_PATH), environment(db));
     const mailbox = await createMailbox(db, {
@@ -369,10 +409,10 @@ describe("Gorelo mailbox API", () => {
     const disabledRule = await createRoutingRule(db, String(disabled.id));
     expect(disabledRule.status).toBe(400);
 
-    const noLongerAllowed = await createRoutingRule(db, String(mailbox.id), {
-      ALLOWED_FORWARD_DESTINATIONS: "tickets@gorelo.example,ops@gorelo.example",
+    const domainAllowed = await createRoutingRule(db, String(mailbox.id), {
+      ALLOWED_FORWARD_DESTINATIONS: "tickets@gorelo.example",
     });
-    expect(noLongerAllowed.status).toBe(400);
+    expect(domainAllowed.status).toBe(201);
 
     const disableReferenced = await handleFetch(
       request(`${MAILBOXES_PATH}/${String(mailbox.id)}`, {

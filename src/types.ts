@@ -13,6 +13,7 @@ export interface Env {
   WEBHOOK_SIGNING_SECRET?: string;
   WEBHOOK_TIMEOUT_MS?: string;
   DEFAULT_GORELO_ADDRESS: string;
+  ALLOWED_FORWARD_DOMAINS?: string;
   ALLOWED_FORWARD_DESTINATIONS?: string;
   QUARANTINE_ADDRESS?: string;
   FAILURE_FORWARD_ADDRESS?: string;
@@ -41,6 +42,7 @@ export interface RuntimeConfig {
   releaseFromAddress?: string | undefined;
   quarantineMode: QuarantineMode;
   archiveMode: ArchiveMode;
+  allowedForwardDomains: ReadonlySet<string>;
   allowedForwardDestinations: ReadonlySet<string>;
   spamThreshold: number;
   spamAction: SpamAction;

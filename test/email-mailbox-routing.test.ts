@@ -144,7 +144,7 @@ function environment(db: D1Database, bucket?: R2Bucket): Env {
     DB: db,
     ...(bucket ? { MESSAGE_ARCHIVE: bucket } : {}),
     DEFAULT_GORELO_ADDRESS: DEFAULT_ADDRESS,
-    ALLOWED_FORWARD_DESTINATIONS: `${DEFAULT_ADDRESS},${ALERTS_ADDRESS}`,
+    ALLOWED_FORWARD_DESTINATIONS: DEFAULT_ADDRESS,
   };
 }
 

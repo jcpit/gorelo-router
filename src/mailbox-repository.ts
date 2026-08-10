@@ -35,6 +35,7 @@ export interface GoreloMailboxDirectory {
 
 export interface LoadGoreloMailboxDirectoryOptions {
   readonly allowedAddresses: ReadonlySet<string>;
+  readonly allowedDomains: ReadonlySet<string>;
   readonly bootstrapAddress?: string;
   readonly bootstrapName?: string;
 }
@@ -482,8 +483,13 @@ export async function loadGoreloMailboxDirectory(
   const allowedAddresses = new Set(
     [...options.allowedAddresses].map(normalizeGoreloMailboxAddress),
   );
+  const allowedDomains = new Set(
+    [...options.allowedDomains].map((domain) => domain.trim().toLowerCase()),
+  );
   const routableMailboxes = mailboxes.map((mailbox) => {
-    const allowlisted = allowedAddresses.has(mailbox.address);
+    const domain = mailbox.address.slice(mailbox.address.lastIndexOf("@") + 1);
+    const allowlisted =
+      allowedAddresses.has(mailbox.address) || allowedDomains.has(domain);
     return {
       ...mailbox,
       allowlisted,

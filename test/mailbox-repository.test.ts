@@ -422,7 +422,7 @@ describe("Gorelo mailbox repository", () => {
     );
   });
 
-  it("loads an ID-indexed directory with current allowlist posture", async () => {
+  it("loads an ID-indexed directory with exact-address and exact-domain posture", async () => {
     const db = database();
     const alerts = await ensureInitialGoreloMailbox(
       db,
@@ -439,12 +439,15 @@ describe("Gorelo mailbox repository", () => {
       address: "retired@gorelo.example",
       enabled: false,
     });
+    const outside = await createGoreloMailbox(db, {
+      name: "Outside",
+      address: "outside@other.example",
+      enabled: true,
+    });
 
     const directory = await loadGoreloMailboxDirectory(db, {
-      allowedAddresses: new Set([
-        "ALERTS@GORELO.EXAMPLE",
-        "retired@gorelo.example",
-      ]),
+      allowedAddresses: new Set(["retired@gorelo.example"]),
+      allowedDomains: new Set(["GORELO.EXAMPLE"]),
     });
     expect(directory.defaultMailbox).toMatchObject({
       id: alerts.id,
@@ -452,11 +455,15 @@ describe("Gorelo mailbox repository", () => {
       routable: true,
     });
     expect(directory.byId.get(tickets.id)).toMatchObject({
-      allowlisted: false,
-      routable: false,
+      allowlisted: true,
+      routable: true,
     });
     expect(directory.byId.get(disabled.id)).toMatchObject({
       allowlisted: true,
+      routable: false,
+    });
+    expect(directory.byId.get(outside.id)).toMatchObject({
+      allowlisted: false,
       routable: false,
     });
     expect(directory.settings).toMatchObject({
@@ -465,7 +472,7 @@ describe("Gorelo mailbox repository", () => {
     });
   });
 
-  it("validates addresses before persistence or allowlist indexing", () => {
+  it("validates addresses before persistence or policy indexing", () => {
     expect(normalizeGoreloMailboxAddress(" Mail@Example.COM ")).toBe(
       "mail@example.com",
     );

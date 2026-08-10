@@ -1097,13 +1097,13 @@ const ADMIN_HTML = String.raw`<!doctype html>
                   <div><h3 id="goreloMailboxesHeading">Gorelo mailboxes</h3><p>Name every Gorelo email destination once, choose a default, then route rules by mailbox instead of typing addresses.</p></div>
                   <div class="toolbar"><button id="addMailbox" class="btn small" type="button" disabled>+ Mailbox</button></div>
                 </div>
-                <p class="setup-secret-note">Each address must also be present in <code>ALLOWED_FORWARD_DESTINATIONS</code>. Addresses are immutable after creation so saved rules cannot silently change destination.</p>
+                <p class="setup-secret-note">The default mailbox domain is allowed automatically. Add other exact domains to <code>ALLOWED_FORWARD_DOMAINS</code>; use <code>ALLOWED_FORWARD_DESTINATIONS</code> only for individual address exceptions. Cloudflare must verify every destination before delivery. Addresses stay fixed after creation so saved rules cannot silently redirect.</p>
                 <p id="mailboxNotice" class="error" role="alert" aria-live="assertive"></p>
                 <div id="mailboxList" class="mailbox-list" aria-live="polite"></div>
                 <form id="mailboxForm" class="mailbox-form hidden" aria-labelledby="mailboxFormHeading">
-                  <div class="mailbox-form-heading"><div><h4 id="mailboxFormHeading">Add Gorelo mailbox</h4><p id="mailboxFormDescription">Register an allow-listed address for routing.</p></div><span id="mailboxFormMode" class="setup-state optional">New</span></div>
+                  <div class="mailbox-form-heading"><div><h4 id="mailboxFormHeading">Add Gorelo mailbox</h4><p id="mailboxFormDescription">Register a verified address on an allowed domain.</p></div><span id="mailboxFormMode" class="setup-state optional">New</span></div>
                   <div class="form-field"><label for="mailboxName">Mailbox name</label><input id="mailboxName" maxlength="120" autocomplete="off" required placeholder="Service desk"></div>
-                  <div class="form-field"><label for="mailboxAddress">Gorelo email address</label><input id="mailboxAddress" type="email" maxlength="254" autocomplete="off" required placeholder="tickets@example.gorelo.com"><span class="field-help">Add the normalized address to the deployment allow-list before saving.</span></div>
+                  <div class="form-field"><label for="mailboxAddress">Gorelo email address</label><input id="mailboxAddress" type="email" maxlength="254" autocomplete="off" required placeholder="tickets@example.gorelo.com"><span class="field-help">Use the default mailbox domain, a domain in <code>ALLOWED_FORWARD_DOMAINS</code>, or an exact address exception.</span></div>
                   <div class="inline-check"><input id="mailboxEnabled" type="checkbox" checked><label for="mailboxEnabled">Enable this mailbox for routing</label></div>
                   <p id="mailboxFormError" class="error" role="alert" aria-live="assertive"></p>
                   <div class="form-actions"><button id="cancelMailbox" class="btn small" type="button">Cancel</button><button id="saveMailbox" class="btn btn-primary primary small" type="submit">Save mailbox</button></div>
@@ -1173,7 +1173,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
         <p id="reviewDialogDescription"></p>
       </div>
       <div class="dialog-body">
-        <div id="reviewMailboxGroup" class="form-field"><label for="reviewMailboxId">Release to Gorelo mailbox</label><select id="reviewMailboxId" class="form-select" required><option value="">Select a mailbox</option></select><span class="field-help">Only enabled, allow-listed mailboxes can receive a released message.</span></div>
+        <div id="reviewMailboxGroup" class="form-field"><label for="reviewMailboxId">Release to Gorelo mailbox</label><select id="reviewMailboxId" class="form-select" required><option value="">Select a mailbox</option></select><span class="field-help">Only enabled mailboxes permitted by the destination policy can receive a released message.</span></div>
         <div class="form-field"><label for="reviewNote">Review note</label><textarea id="reviewNote" class="form-control" maxlength="500" placeholder="Optional reason or handoff note"></textarea></div>
         <p id="reviewDialogError" class="error" role="alert" aria-live="assertive"></p>
       </div>
@@ -1573,7 +1573,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       const copy=node("div");
       if (features.rawQuarantine && features.release) {
         container.classList.add("info");
-        copy.append(node("strong","Stored review and release are active"),node("p","Held originals can be inspected as safe text, downloaded as EML, and released to an allow-listed Gorelo route. Retention: "+runtimeConfig.eventRetentionDays+" days."));
+        copy.append(node("strong","Stored review and release are active"),node("p","Held originals can be inspected as safe text, downloaded as EML, and released to an approved Gorelo route. Retention: "+runtimeConfig.eventRetentionDays+" days."));
       } else if (features.rawQuarantine) {
         container.classList.add("info");
         copy.append(node("strong","Stored review is active; automated release is not configured"),node("p","You can inspect and download retained originals here, then handle release through your review workflow. Retention: "+runtimeConfig.eventRetentionDays+" days."));
@@ -2379,7 +2379,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       reviewAction=action; reviewEvent=event; clearError("reviewDialogError"); byId("reviewNote").value="";
       const release=action==="release"; byId("reviewMailboxGroup").classList.toggle("hidden",!release); byId("reviewMailboxId").required=release; populateReviewMailboxSelect();
       setText("reviewDialogTitle",release?"Release to Gorelo?":"Mark as spam?");
-      setText("reviewDialogDescription",(event.subject||"Message without subject")+" from "+(event.envelopeFrom||"unknown sender")+(release?" will be replayed to the selected allow-listed destination.":" will leave the active review queue and remain in the audit ledger."));
+      setText("reviewDialogDescription",(event.subject||"Message without subject")+" from "+(event.envelopeFrom||"unknown sender")+(release?" will be replayed to the selected approved destination.":" will leave the active review queue and remain in the audit ledger."));
       const confirmButton=byId("reviewConfirm"); confirmButton.textContent=release?"Release message":"Mark as spam"; confirmButton.className=release?"btn btn-primary primary":"btn danger";
       byId("reviewDialog").showModal(); (release?byId("reviewMailboxId"):byId("reviewNote")).focus();
     }
@@ -2804,17 +2804,17 @@ const ADMIN_HTML = String.raw`<!doctype html>
       const select=byId("reviewMailboxId"); const wanted=preferred||goreloMailboxDefaultId||""; select.textContent=""; select.append(makeOption("","Select an enabled mailbox")); goreloMailboxes.filter((mailbox)=>mailbox.routable).forEach((mailbox)=>select.append(makeOption(mailbox.id,mailbox.name+" · "+mailbox.address+(mailbox.isDefault?" · default":"")))); select.value=goreloMailboxes.some((mailbox)=>mailbox.id===wanted&&mailbox.routable)?wanted:"";
     }
     function resetMailboxForm() {
-      editingMailboxId=null; byId("mailboxForm").classList.add("hidden"); setText("mailboxFormHeading","Add Gorelo mailbox"); setText("mailboxFormDescription","Register an allow-listed address for routing."); setText("mailboxFormMode","New"); byId("mailboxName").value=""; byId("mailboxAddress").value=""; byId("mailboxAddress").disabled=false; byId("mailboxAddress").required=true; byId("mailboxEnabled").checked=true; clearError("mailboxFormError");
+      editingMailboxId=null; byId("mailboxForm").classList.add("hidden"); setText("mailboxFormHeading","Add Gorelo mailbox"); setText("mailboxFormDescription","Register a verified address on an allowed domain."); setText("mailboxFormMode","New"); byId("mailboxName").value=""; byId("mailboxAddress").value=""; byId("mailboxAddress").disabled=false; byId("mailboxAddress").required=true; byId("mailboxEnabled").checked=true; clearError("mailboxFormError");
     }
     function resetMailboxes() {
       goreloMailboxes=[]; goreloMailboxDefaultId=null; goreloMailboxSettingsVersion=null; goreloMailboxesLoaded=false; goreloMailboxesLoading=false; resetMailboxForm(); byId("addMailbox").disabled=true; clearError("mailboxNotice"); const list=byId("mailboxList"); list.textContent=""; list.removeAttribute("aria-busy"); list.append(emptyState("forward","Mailboxes not loaded","Open Setup to load the named Gorelo destinations.")); populateActionMailboxSelect(); populateParserMailboxSelect(); populateReviewMailboxSelect();
     }
     function renderMailboxes() {
       const list=byId("mailboxList"); list.textContent=""; list.removeAttribute("aria-busy"); byId("addMailbox").disabled=false;
-      if (!goreloMailboxes.length) { list.append(emptyState("forward","No Gorelo mailboxes","Register an allow-listed Gorelo email destination before creating forward rules.","Add mailbox",()=>openMailboxForm(null))); populateActionMailboxSelect(); populateReviewMailboxSelect(); return; }
+      if (!goreloMailboxes.length) { list.append(emptyState("forward","No Gorelo mailboxes","Register a verified Gorelo destination on an allowed domain before creating forward rules.","Add mailbox",()=>openMailboxForm(null))); populateActionMailboxSelect(); populateReviewMailboxSelect(); return; }
       goreloMailboxes.forEach((mailbox)=>{
-        const row=node("article",undefined,"mailbox-row"); const copy=node("div",undefined,"mailbox-row-heading"); const heading=node("h4",mailbox.name); if (mailbox.isDefault) heading.append(node("span","Default","setup-state ready")); if (!mailbox.enabled) heading.append(node("span","Disabled","setup-state optional")); else if (!mailbox.allowlisted) heading.append(node("span","Not allow-listed","setup-state missing")); copy.append(heading,node("span",mailbox.address,"mailbox-address"));
-        const actions=node("div",undefined,"mailbox-actions"); if (!mailbox.isDefault) { const makeDefault=node("button","Make default","btn small"); makeDefault.type="button"; makeDefault.disabled=!mailbox.routable; makeDefault.title=mailbox.routable?"Use for unmatched mail and default-following rules":"Enable and allow-list this mailbox before making it default"; makeDefault.onclick=()=>setDefaultMailbox(mailbox,makeDefault); actions.append(makeDefault); }
+        const row=node("article",undefined,"mailbox-row"); const copy=node("div",undefined,"mailbox-row-heading"); const heading=node("h4",mailbox.name); if (mailbox.isDefault) heading.append(node("span","Default","setup-state ready")); if (!mailbox.enabled) heading.append(node("span","Disabled","setup-state optional")); else if (!mailbox.allowlisted) heading.append(node("span","Destination not allowed","setup-state missing")); copy.append(heading,node("span",mailbox.address,"mailbox-address"));
+        const actions=node("div",undefined,"mailbox-actions"); if (!mailbox.isDefault) { const makeDefault=node("button","Make default","btn small"); makeDefault.type="button"; makeDefault.disabled=!mailbox.routable; makeDefault.title=mailbox.routable?"Use for unmatched mail and default-following rules":"Enable this mailbox and permit its domain or exact address before making it default"; makeDefault.onclick=()=>setDefaultMailbox(mailbox,makeDefault); actions.append(makeDefault); }
         const edit=node("button","Edit","btn small"); edit.type="button"; edit.onclick=()=>openMailboxForm(mailbox); const toggle=node("button",mailbox.enabled?"Disable":"Enable","btn small"); toggle.type="button"; toggle.disabled=mailbox.isDefault; toggle.title=mailbox.isDefault?"Choose another default mailbox before disabling this one":""; toggle.onclick=()=>toggleMailbox(mailbox,toggle); const remove=node("button","Delete","btn danger small"); remove.type="button"; remove.disabled=mailbox.isDefault; remove.title=mailbox.isDefault?"Choose another default mailbox before deleting this one":""; remove.onclick=()=>deleteMailbox(mailbox,remove); actions.append(edit,toggle,remove); row.append(copy,actions); list.append(row);
       });
       populateActionMailboxSelect(); populateParserMailboxSelect(); populateReviewMailboxSelect(); if (rulesCache.length) renderRules();
@@ -2826,7 +2826,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       finally { goreloMailboxesLoading=false; populateActionMailboxSelect(); populateParserMailboxSelect(); populateReviewMailboxSelect(); }
     }
     function openMailboxForm(mailbox) {
-      editingMailboxId=mailbox?.id||null; setText("mailboxFormHeading",mailbox?"Edit Gorelo mailbox":"Add Gorelo mailbox"); setText("mailboxFormDescription",mailbox?"Rename or change availability. The routing address stays fixed.":"Register an allow-listed address for routing."); setText("mailboxFormMode",mailbox?"Editing":"New"); byId("mailboxName").value=mailbox?.name||""; byId("mailboxAddress").value=mailbox?.address||""; byId("mailboxAddress").disabled=Boolean(mailbox); byId("mailboxAddress").required=!mailbox; byId("mailboxEnabled").checked=mailbox?mailbox.enabled:true; byId("mailboxEnabled").disabled=Boolean(mailbox?.isDefault); clearError("mailboxFormError"); byId("mailboxForm").classList.remove("hidden"); byId("mailboxName").focus();
+      editingMailboxId=mailbox?.id||null; setText("mailboxFormHeading",mailbox?"Edit Gorelo mailbox":"Add Gorelo mailbox"); setText("mailboxFormDescription",mailbox?"Rename or change availability. The routing address stays fixed.":"Register a verified address on an allowed domain."); setText("mailboxFormMode",mailbox?"Editing":"New"); byId("mailboxName").value=mailbox?.name||""; byId("mailboxAddress").value=mailbox?.address||""; byId("mailboxAddress").disabled=Boolean(mailbox); byId("mailboxAddress").required=!mailbox; byId("mailboxEnabled").checked=mailbox?mailbox.enabled:true; byId("mailboxEnabled").disabled=Boolean(mailbox?.isDefault); clearError("mailboxFormError"); byId("mailboxForm").classList.remove("hidden"); byId("mailboxName").focus();
     }
     function closeMailboxForm() { resetMailboxForm(); byId("mailboxEnabled").disabled=false; byId("addMailbox").focus(); }
     async function saveMailbox() {

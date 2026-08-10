@@ -440,7 +440,7 @@ describe("rule evaluation", () => {
     });
   });
 
-  it("rejects destinations outside the configured allow-list", () => {
+  it("keeps legacy literal destinations on the exact-address allow-list", () => {
     const exfiltrationRule = rule({
       name: "Bad destination",
       description: "",
@@ -452,9 +452,15 @@ describe("rule evaluation", () => {
       ],
       action: { type: "forward", destination: "attacker@example.net" },
     });
-    expect(() => decide(email(), [exfiltrationRule], config())).toThrow(
-      "Rule destination is not allowed",
-    );
+    expect(() =>
+      decide(
+        email(),
+        [exfiltrationRule],
+        config({
+          allowedForwardDomains: new Set(["gorelo.example", "example.net"]),
+        }),
+      ),
+    ).toThrow("Rule destination is not allowed");
   });
 
   it("only requests MIME parsing for enabled content rules", () => {
