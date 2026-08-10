@@ -7,6 +7,8 @@ services:
       context: .
       target: development
     init: true
+    group_add:
+      - "0"
     ports:
       - "127.0.0.1:${MAIL_PARSER_PORT:-8787}:8787"
     volumes:
@@ -51,6 +53,8 @@ services:
     profiles:
       - tools
     init: true
+    group_add:
+      - "0"
     stdin_open: true
     tty: true
     volumes:
@@ -93,6 +97,8 @@ services:
     profiles:
       - tools
     init: true
+    group_add:
+      - "0"
     stdin_open: true
     tty: true
     tmpfs:

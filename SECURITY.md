@@ -14,10 +14,11 @@ identify a customer or tenant. Never force-add or publish that file, and do not
 assume a credential scanner can recognize every operational identifier copied
 to another filename.
 
-The Compose services run as UID/GID `1000`. On native Linux, keep local config
-owner-writable only and grant that container identity read-only access with a
-narrow ACL or group-read permission. Do not solve bind-mount errors by making a
-secret file world-writable.
+The Compose services run as UID/GID `1000` with all Linux capabilities dropped.
+They receive supplemental group `0` only so root-owned mode-`0640` configuration
+binds remain readable; those binds are mounted read-only. For files owned by a
+different non-root group, grant GID `1000` narrow read access. Do not solve
+bind-mount errors by making a secret file world-writable.
 
 Run `docker compose run --rm --build public-check` before committing or pushing.
 It scans the mounted checkout, including files excluded from the application

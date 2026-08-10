@@ -41,11 +41,13 @@ FROM source AS tooling
 
 RUN chown node:node /app \
     && install -d -o node -g node /home/node/.config/.wrangler \
-    && chmod 0755 /app/scripts/cloudflare-deploy.sh
+    && chmod 0755 \
+      /app/scripts/cloudflare-cli.sh \
+      /app/scripts/cloudflare-deploy.sh
 
 USER node
 
-ENTRYPOINT ["./node_modules/.bin/wrangler"]
+ENTRYPOINT ["/app/scripts/cloudflare-cli.sh"]
 CMD ["--help"]
 
 FROM tooling AS deployment

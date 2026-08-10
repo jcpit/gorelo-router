@@ -88,10 +88,11 @@ an ordinary `docker compose up`.
    holds this deployment's non-secret but private account IDs, hostnames, and
    routing addresses. Never force-add or publish it; Compose mounts it directly
    into the Cloudflare tooling containers as read-only configuration.
-   On native Linux, the unprivileged container user is UID/GID `1000`; if your
-   checkout uses another owner, grant that identity read-only access with a
-   narrow ACL or run `chgrp 1000 wrangler.production.jsonc && chmod 640
-wrangler.production.jsonc`. Do not make the file world-writable.
+   On native Linux, Compose gives the unprivileged UID/GID `1000` process
+   supplemental group `0` access so a root-owned mode-`0640` file remains
+   readable. If the file belongs to a different non-root group, grant GID `1000`
+   read-only access with a narrow ACL or change its group to `1000`. Do not make
+   the file world-writable.
 
 2. Sign in with Wrangler's container-friendly device flow, then verify the
    exact target account before creating anything:
@@ -103,7 +104,9 @@ wrangler.production.jsonc`. Do not make the file world-writable.
 
    Copy the exact account ID shown by `whoami` into the top-level `account_id`
    in `wrangler.production.jsonc`, replacing its all-zero value. This pins every
-   later resource, secret, and deployment command to that account.
+   later resource, secret, and deployment command to that account. The tooling
+   wrapper refuses account-scoped commands locally until this value is a valid,
+   non-placeholder ID.
 
    The OAuth session is stored as plaintext in the
    `gorelo-router-cloudflare-auth` named volume because the slim container has
@@ -232,10 +235,10 @@ chmod 640 .dev.vars
 # Replace the deliberately rejected placeholder with a random value of at least 32 characters.
 ```
 
-On native Linux, `.dev.vars` must also be readable by container UID/GID `1000`.
-If the checkout owner differs, grant that identity read-only access with a
-narrow ACL or run `chgrp 1000 .dev.vars && chmod 640 .dev.vars`; keep write
-access restricted to the owner.
+On native Linux, root-owned mode-`0640` files work through the container's
+supplemental group `0`. If `.dev.vars` belongs to another non-root group, grant
+GID `1000` read-only access with a narrow ACL or change its group to `1000`;
+keep write access restricted to the owner.
 
 ```bash
 docker compose up --build

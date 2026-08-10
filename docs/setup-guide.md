@@ -101,10 +101,12 @@ placeholder with a random value of at least 32 characters. Keep the file local
 and uncommitted. Do not reuse a production token. The Router deliberately
 rejects the tracked placeholder. Only then start Compose:
 
-On native Linux, the container runs as UID/GID `1000`. If the checkout owner
-differs, grant that identity read-only access with a narrow ACL or run `chgrp
-1000 .dev.vars && chmod 640 .dev.vars`; keep the file owner as the only writer.
-Docker Desktop handles bind permissions through its file-sharing layer.
+On native Linux, Compose gives the unprivileged UID/GID `1000` process
+supplemental group `0` access, so root-owned mode-`0640` files work without
+changing ownership. If the file belongs to a different non-root group, grant
+GID `1000` read-only access with a narrow ACL or change its group to `1000`;
+keep the file owner as the only writer. Docker Desktop handles bind permissions
+through its file-sharing layer.
 
 ```bash
 docker compose up --build
@@ -217,10 +219,11 @@ non-secret but private account IDs, hostnames, and routing addresses. Never
 force-add or publish it. Compose mounts it read-only into only the Cloudflare
 tooling and deployment containers.
 
-On native Linux, the tooling containers also run as UID/GID `1000`. If the
-checkout owner differs, grant that identity read-only access with a narrow ACL
-or run `chgrp 1000 wrangler.production.jsonc && chmod 640
-wrangler.production.jsonc`; keep owner-only write access.
+On native Linux, Compose gives the unprivileged UID/GID `1000` tooling process
+supplemental group `0` access, so a root-owned mode-`0640` file works without
+changing ownership. If the file belongs to a different non-root group, grant
+GID `1000` read-only access with a narrow ACL or change its group to `1000`;
+keep owner-only write access.
 
 Build the tooling image, use Wrangler's container-friendly device login, and
 confirm the exact target account before creating resources:
@@ -234,7 +237,8 @@ docker compose run --rm cloudflare whoami
 Copy the exact account ID shown by `whoami` into the top-level `account_id` in
 `wrangler.production.jsonc`, replacing its all-zero value. This pins every later
 resource, secret, and deploy command to that account; do this before creating D1
-or R2.
+or R2. The tooling wrapper refuses account-scoped commands locally until this
+value is a valid, non-placeholder ID.
 
 The OAuth credentials are stored as plaintext inside the
 `gorelo-router-cloudflare-auth` Docker volume because the slim container has no
@@ -847,6 +851,7 @@ incident.
 
 | Symptom                                                     | Checks and resolution                                                                                                                                                                                                        |
 | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cloudflare account is not configured                        | Run `docker compose run --rm cloudflare whoami`, copy the intended Account ID into `account_id` in `wrangler.production.jsonc`, then retry.                                                                                  |
 | Deploy preflight says configuration is incomplete           | Replace the all-zero Cloudflare `account_id`, D1 `database_id`, scaffold Gorelo address, and `router.example.com` hostname in `wrangler.production.jsonc`. Keep `workers_dev` and `preview_urls` false.                      |
 | Deployment rejects `ADMIN_API_TOKEN`                        | Enter the password-manager value at the hidden `deploy` prompt. It must be at least 32 characters, must not be the tracked placeholder, and must not have surrounding whitespace.                                            |
 | `/admin` rejects the token                                  | Confirm the token belongs to this deployed Worker and was not copied with whitespace. Rotate it if its handling is uncertain.                                                                                                |
