@@ -230,7 +230,7 @@ an ordinary `docker compose up`.
    actions remain disabled without the Gorelo key; webhooks remain disabled
    until both the signing secret and exact host allowlist are configured.
 
-9. Onboard the chosen apex domain or dedicated ingestion subdomain in **Compute → Email Service → Email Routing**, wait until its required routing DNS records are active, then create the public recipient (or catch-all) rule under **Routing Rules** and choose **Send to a Worker → gorelo-router**. Cloudflare's [routing setup guide](https://developers.cloudflare.com/email-service/get-started/route-emails/) and the [full setup guide](docs/setup-guide.md#10-connect-email-routing-to-the-worker) cover the domain and subdomain flows.
+9. Onboard the chosen apex domain or dedicated ingestion subdomain in **Compute → Email Service → Email Routing** and wait until its required routing DNS records are active. Enable that hostname's **Catch-all** rule with **Send to a Worker → gorelo-router**. Do not create per-recipient Cloudflare rules for addresses that Gorelo Router should evaluate: an explicit Email Routing rule takes precedence over the catch-all and bypasses the application's rules and audit. Cloudflare's [routing setup guide](https://developers.cloudflare.com/email-service/get-started/route-emails/) and the [full setup guide](docs/setup-guide.md#10-connect-email-routing-to-the-worker) cover the domain and subdomain flows.
 
 10. Visit the protected production `/admin`, enter `ADMIN_API_TOKEN`, and
     refresh **Setup**. Readiness validates the D1 schema and every integration

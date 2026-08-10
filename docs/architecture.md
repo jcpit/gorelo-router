@@ -2,7 +2,7 @@
 
 ## Boundaries
 
-Cloudflare Email Routing owns SMTP receipt and the live `ForwardableEmailMessage`. The Worker owns MSP-specific inspection, rule evaluation, client identity resolution, delivery audit, and routing. Gorelo's native inbound address owns the default email-to-ticket conversion; opt-in structured rules use Gorelo's ticket or alert API instead.
+Cloudflare Email Routing owns SMTP receipt and the live `ForwardableEmailMessage`. Its catch-all sends the complete ingestion hostname to this Worker; the Worker owns recipient-specific inspection, ordered rule evaluation, client identity resolution, delivery audit, and routing. An explicit Cloudflare Email Routing rule takes precedence over the catch-all, so any address configured there bypasses Gorelo Router entirely. Gorelo's native inbound address owns the default email-to-ticket conversion; opt-in structured rules use Gorelo's ticket or alert API instead.
 
 The normal forward path deliberately does not call `POST /v1/tickets`: Gorelo's native inbound route preserves message and attachment semantics that its structured ticket API cannot reproduce. A matching rule may add a signed webhook action after the primary forward. An explicit `create_ticket` or `create_alert` rule is API-only on its primary path: it requires a private `MESSAGE_ARCHIVE` and sends only mapped fields to Gorelo instead of calling `message.forward()`. A definitive failure may still use the explicit failure route. An internal quarantine is different again—it retains the exact RFC 5322 message in private R2 until a reviewer dismisses or releases it.
 

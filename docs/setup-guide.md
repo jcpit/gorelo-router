@@ -478,7 +478,7 @@ in Setup.
 
 ## 10. Connect Email Routing to the Worker
 
-Activate Email Routing and confirm its DNS state before creating the rule:
+Activate Email Routing and confirm its DNS state before enabling the catch-all:
 
 1. Open **Compute → Email Service → Email Routing**.
 2. For an unused apex domain, select **Onboard Domain**, review the MX, SPF, and
@@ -490,9 +490,29 @@ Activate Email Routing and confirm its DNS state before creating the rule:
 4. Wait for DNS propagation and confirm Email Routing shows the selected
    hostname and its required records as active. Do not continue while MX or
    verification status is incomplete.
-5. Select that hostname, open **Routing Rules**, and create a specific public
-   recipient or catch-all route. Set **Action** to **Send to a Worker**, choose
-   `gorelo-router`, and save.
+5. Select that hostname, open **Routing Rules**, edit **Catch-all**, set
+   **Action** to **Send to a Worker**, choose `gorelo-router`, enable it, and
+   save. This is the only Cloudflare recipient rule Gorelo Router requires.
+6. Review every explicit rule on the same hostname. Explicit matches take
+   precedence over the catch-all. Remove or repoint any address that should be
+   evaluated and audited by Gorelo Router; retain a bypass only deliberately.
+
+With Wrangler 4.120 or later, the equivalent explicit change is:
+
+```bash
+docker compose run --rm cloudflare email routing rules update \
+  example.com catch-all \
+  --enabled true \
+  --action-type worker \
+  --action-value gorelo-router
+```
+
+Replace `example.com` with the exact onboarded apex or ingestion subdomain, then
+confirm the result with:
+
+```bash
+docker compose run --rm cloudflare email routing rules list example.com
+```
 
 Cloudflare's current
 [routing setup guide](https://developers.cloudflare.com/email-service/get-started/route-emails/),
@@ -501,10 +521,13 @@ and
 [subdomain setup](https://developers.cloudflare.com/email-service/configuration/subdomains/)
 show the dashboard flow and DNS requirements.
 
-Prefer specific recipient addresses over a catch-all when only automated alerts
-should enter the router. For dynamic client mapping, use a dedicated parser
-recipient and independently authenticate the source upstream; email headers,
-envelope sender domains, and extracted customer names can be forged.
+Create recipient-specific policies inside Gorelo Router. A message that matches
+no application rule follows the configured default action and destination. A
+catch-all increases the exposed recipient surface, so use a dedicated ingestion
+subdomain when the main domain has unrelated mail, keep spam/quarantine and
+failure routing configured, and independently authenticate trusted upstreams;
+email headers, envelope sender domains, and extracted customer names can be
+forged.
 
 ## 11. Protect and open the admin console
 
@@ -897,7 +920,7 @@ Use `--no-update-config` on future resource creation commands.
 | `/admin` rejects the token                                  | Confirm the token belongs to this deployed Worker and was not copied with whitespace. Rotate it if its handling is uncertain.                                                                                                                                                                                                                                                                                                                                                   |
 | `/healthz` works but readiness fails                        | `/healthz` is only Router-unauthenticated liveness/configuration and should still sit behind Access. Open authenticated Setup or `/api/v1/readiness`, then fix the named schema, binding, release, client, or webhook check.                                                                                                                                                                                                                                                    |
 | D1 schema is missing                                        | Confirm the intended account and D1 ID, then rerun `docker compose run --rm --build deploy`; it initializes the baseline before deploying.                                                                                                                                                                                                                                                                                                                                      |
-| Mail never reaches the Worker                               | Confirm the domain/subdomain is eligible for Email Routing, its MX setup is active, and the recipient/catch-all rule selects `gorelo-router`. Verify against the current Cloudflare dashboard.                                                                                                                                                                                                                                                                                  |
+| Mail never reaches the Worker                               | Confirm the domain/subdomain is eligible for Email Routing, its MX setup is active, and its enabled catch-all action selects `gorelo-router`. Explicit Cloudflare recipient rules take precedence and bypass the Router, so remove or repoint unintended exceptions. Verify with `docker compose run --rm cloudflare email routing rules list example.com` and an unfiltered Worker tail.                                                                                       |
 | A forward destination is rejected                           | The address must be valid, application allow-listed, and verified as a Cloudflare Email Routing destination. Check both controls.                                                                                                                                                                                                                                                                                                                                               |
 | Message processing fails instead of using the default route | This is intentional fail-closed behavior. Inspect Audit and the configured `FAILURE_FORWARD_ADDRESS`/`QUARANTINE_ADDRESS`; failures never silently fall through to normal Gorelo delivery.                                                                                                                                                                                                                                                                                      |
 | Body or attachment rule fails for a large message           | Compare raw size with `MAX_PARSE_BYTES`. Add a higher-priority metadata-only size rule and consider representative Workers Paid limits for production content parsing.                                                                                                                                                                                                                                                                                                          |
