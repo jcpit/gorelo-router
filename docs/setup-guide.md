@@ -251,14 +251,16 @@ grant in Cloudflare rather than relying only on local deletion.
 Create the D1 database and private R2 bucket:
 
 ```bash
-docker compose run --rm cloudflare d1 create mail-parser
-docker compose run --rm cloudflare r2 bucket create mail-parser-quarantine
+docker compose run --rm cloudflare d1 create mail-parser --no-update-config
+docker compose run --rm cloudflare r2 bucket create mail-parser-quarantine --no-update-config
 ```
 
-Copy the D1 identifier returned by Wrangler into the `database_id` field in
-`wrangler.production.jsonc`, replacing the all-zero scaffold value. Keep the
-binding name `DB`. Keep the R2 bucket private and retain the `MESSAGE_ARCHIVE`
-binding name; raw email does not need a public or custom bucket domain.
+`--no-update-config` prevents Wrangler from trying to rewrite the deliberately
+read-only production configuration. Copy the D1 identifier returned by Wrangler
+into the `database_id` field in `wrangler.production.jsonc`, replacing only the
+all-zero scaffold value. Keep the binding name `DB`; the application depends on
+that name. Keep the R2 bucket private and retain the `MESSAGE_ARCHIVE` binding
+name; raw email does not need a public or custom bucket domain.
 
 Add an R2 lifecycle rule as a secondary safety net for orphaned raw messages.
 Set it slightly longer than `EVENT_RETENTION_DAYS`. For the scaffold's 30-day
@@ -848,6 +850,11 @@ record the pre-change bookmark and rehearse the recovery procedure outside an
 incident.
 
 ## 19. Troubleshooting
+
+If D1 or R2 creation reports success and then `EROFS`, the resource exists; do
+not create it again. Wrangler only failed to rewrite the read-only configuration.
+For D1, copy the returned ID into `database_id` while preserving binding `DB`.
+Use `--no-update-config` on future resource creation commands.
 
 | Symptom                                                     | Checks and resolution                                                                                                                                                                                                        |
 | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

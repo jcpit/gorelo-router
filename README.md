@@ -118,12 +118,14 @@ an ordinary `docker compose up`.
 3. Create the D1 database and private archive bucket:
 
    ```bash
-   docker compose run --rm cloudflare d1 create mail-parser
-   docker compose run --rm cloudflare r2 bucket create mail-parser-quarantine
+   docker compose run --rm cloudflare d1 create mail-parser --no-update-config
+   docker compose run --rm cloudflare r2 bucket create mail-parser-quarantine --no-update-config
    ```
 
-   Put the returned D1 ID in `wrangler.production.jsonc`, replacing the all-zero
-   value.
+   `--no-update-config` is required because the production configuration is
+   deliberately mounted read-only. Put the returned D1 ID in
+   `wrangler.production.jsonc`, replacing only the all-zero `database_id`.
+   Preserve the existing `DB` binding; the application depends on that name.
    Keep `MESSAGE_ARCHIVE` bound to the private bucket; raw mail needs no public
    bucket domain. Add the 31-day lifecycle safety net used with the default
    30-day retention:
