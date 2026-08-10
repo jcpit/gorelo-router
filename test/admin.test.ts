@@ -127,7 +127,7 @@ describe("admin dashboard", () => {
 
     expect(html).toContain('api("/api/v1/setup/status")');
     expect(html).toContain(
-      'api("/api/v1/integrations/gorelo/test",{method:"POST"})',
+      'api("/api/v1/integrations/gorelo/test",{method:"POST"},25000)',
     );
     expect(html).toContain("fetchSetup()]);");
     expect(html).toContain('new Set(["forward-only","structured-gorelo"])');

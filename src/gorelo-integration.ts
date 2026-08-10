@@ -3,7 +3,9 @@ import {
   GoreloClientError,
   type GoreloClient,
   type GoreloClientCatalogItem,
+  type GoreloNetworkFailureReason,
   type GoreloPage,
+  type GoreloRequestFailurePhase,
 } from "./gorelo";
 import {
   getFreshGoreloCatalogCache,
@@ -41,6 +43,7 @@ const MAX_CLIENT_IMPORT_PAGES = 100;
 const MAX_PAGED_CATALOG_ITEMS = 5_000;
 const MAX_PAGED_CATALOG_PAGES = 100;
 const GORELO_CATALOG_PAGE_SIZE = 200;
+export const GORELO_SETUP_PROBE_TIMEOUT_MS = 3_000;
 
 export interface GoreloCatalogSnapshot {
   kind: GoreloCatalogKind;
@@ -65,6 +68,12 @@ export interface GoreloConnectionTestResult {
   catalogCounts: Readonly<Record<string, number>>;
 }
 
+export interface GoreloIntegrationDiagnostic {
+  stage: GoreloCatalogKind | "connection";
+  phase?: GoreloRequestFailurePhase;
+  reason?: GoreloNetworkFailureReason;
+}
+
 export class GoreloIntegrationError extends Error {
   override readonly name = "GoreloIntegrationError";
 
@@ -73,44 +82,102 @@ export class GoreloIntegrationError extends Error {
     readonly code: string,
     message: string,
     readonly upstreamStatus?: number,
+    readonly diagnostic?: GoreloIntegrationDiagnostic,
   ) {
     super(message);
   }
 }
 
-function integrationClient(env: Env, config: RuntimeConfig): GoreloClient {
+function integrationClient(
+  env: Env,
+  config: RuntimeConfig,
+  timeoutMs?: number,
+): GoreloClient {
   const apiKey = env.GORELO_API_KEY;
   if (!config.goreloApiConfigured || !apiKey) {
     throw new GoreloIntegrationError(
       409,
       "not_configured",
       "Gorelo API is not configured; set the GORELO_API_KEY Worker secret",
+      undefined,
+      { stage: "connection", phase: "request" },
     );
   }
   try {
     return createGoreloClient({
       baseUrl: config.goreloApiBaseUrl,
       apiKey,
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
     });
   } catch (error) {
-    throw mapGoreloError(error);
+    throw mapGoreloError(error, "connection");
   }
 }
 
-function mapGoreloError(error: unknown): GoreloIntegrationError {
-  if (error instanceof GoreloIntegrationError) return error;
+function mapGoreloError(
+  error: unknown,
+  stage?: GoreloIntegrationDiagnostic["stage"],
+): GoreloIntegrationError {
+  if (error instanceof GoreloIntegrationError) {
+    if (!stage || error.diagnostic) return error;
+    return new GoreloIntegrationError(
+      error.status,
+      error.code,
+      error.message,
+      error.upstreamStatus,
+      { stage },
+    );
+  }
+  const diagnostic: GoreloIntegrationDiagnostic | undefined = stage
+    ? {
+        stage,
+        ...(error instanceof GoreloClientError && error.diagnostic
+          ? {
+              phase: error.diagnostic.phase,
+              ...(error.diagnostic.reason
+                ? { reason: error.diagnostic.reason }
+                : {}),
+            }
+          : error instanceof GoreloClientError
+            ? {
+                phase:
+                  error.code === "invalid_configuration" ||
+                  error.code === "timeout" ||
+                  error.code === "network_error"
+                    ? "request"
+                    : "response",
+              }
+            : stage === "connection"
+              ? { phase: "request" }
+              : {}),
+      }
+    : undefined;
   if (!(error instanceof GoreloClientError)) {
     return new GoreloIntegrationError(
       502,
       "unexpected_error",
       "Gorelo API request failed safely",
+      undefined,
+      diagnostic,
     );
   }
   if (error.code === "invalid_configuration") {
-    return new GoreloIntegrationError(503, error.code, error.message);
+    return new GoreloIntegrationError(
+      503,
+      error.code,
+      error.message,
+      undefined,
+      diagnostic,
+    );
   }
   if (error.code === "timeout") {
-    return new GoreloIntegrationError(504, error.code, error.message);
+    return new GoreloIntegrationError(
+      504,
+      error.code,
+      error.message,
+      undefined,
+      diagnostic,
+    );
   }
   if (error.status === 401 || error.status === 403) {
     return new GoreloIntegrationError(
@@ -118,6 +185,7 @@ function mapGoreloError(error: unknown): GoreloIntegrationError {
       "authentication_failed",
       "Gorelo rejected the API key or its assigned scopes",
       error.status,
+      diagnostic,
     );
   }
   if (error.status === 429) {
@@ -126,6 +194,7 @@ function mapGoreloError(error: unknown): GoreloIntegrationError {
       "rate_limited",
       "Gorelo temporarily rate limited the connection test",
       error.status,
+      diagnostic,
     );
   }
   return new GoreloIntegrationError(
@@ -133,6 +202,7 @@ function mapGoreloError(error: unknown): GoreloIntegrationError {
     error.code,
     error.message,
     error.status,
+    diagnostic,
   );
 }
 
@@ -302,7 +372,7 @@ async function fetchCatalog(
         return directSnapshot(kind, await client.listTicketTypes(), timestamps);
     }
   } catch (error) {
-    throw mapGoreloError(error);
+    throw mapGoreloError(error, kind);
   }
 }
 
@@ -417,24 +487,49 @@ export async function testGoreloConnection(
   env: Env,
   config: RuntimeConfig,
 ): Promise<GoreloConnectionTestResult> {
-  const client = integrationClient(env, config);
-  try {
-    await client.verifyConnection();
-    const snapshots = await Promise.all(
-      SETUP_CATALOG_KINDS.map((kind) => fetchCatalog(client, config, kind)),
-    );
-    for (const snapshot of snapshots) await cacheCatalog(env.DB, snapshot);
-    return {
-      connected: true,
-      checkedAt: new Date().toISOString(),
-      baseUrl: client.baseUrl,
-      catalogCounts: Object.fromEntries(
-        snapshots.map((snapshot) => [snapshot.kind, snapshot.totalCount]),
-      ),
-    };
-  } catch (error) {
-    throw mapGoreloError(error);
+  const client = integrationClient(env, config, GORELO_SETUP_PROBE_TIMEOUT_MS);
+  const catalogCounts: Record<string, number> = {};
+  for (const kind of SETUP_CATALOG_KINDS) {
+    try {
+      switch (kind) {
+        case "clients":
+          catalogCounts[kind] = (
+            await client.listClients({ pageSize: 1 })
+          ).totalCount;
+          break;
+        case "agent-assets":
+          catalogCounts[kind] = (
+            await client.listAgentAssets({ pageSize: 1 })
+          ).totalCount;
+          break;
+        case "users":
+          catalogCounts[kind] = (
+            await client.listUsers({ pageSize: 1 })
+          ).totalCount;
+          break;
+        case "groups":
+          catalogCounts[kind] = (await client.listGroups()).length;
+          break;
+        case "ticket-statuses":
+          catalogCounts[kind] = (await client.listTicketStatuses()).length;
+          break;
+        case "ticket-tags":
+          catalogCounts[kind] = (await client.listTicketTags()).length;
+          break;
+        case "ticket-types":
+          catalogCounts[kind] = (await client.listTicketTypes()).length;
+          break;
+      }
+    } catch (error) {
+      throw mapGoreloError(error, kind);
+    }
   }
+  return {
+    connected: true,
+    checkedAt: new Date().toISOString(),
+    baseUrl: client.baseUrl,
+    catalogCounts,
+  };
 }
 
 export async function fetchAllGoreloClients(
@@ -493,6 +588,6 @@ export async function fetchAllGoreloClients(
       "Gorelo client import exceeded the bounded page limit",
     );
   } catch (error) {
-    throw mapGoreloError(error);
+    throw mapGoreloError(error, "clients");
   }
 }

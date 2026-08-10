@@ -78,6 +78,23 @@ describe("Gorelo base URL security", () => {
     expect(String(thrown)).not.toContain(malformedKey);
     expect(String(thrown)).not.toContain("should-not-leak");
   });
+
+  it.each(["secret with spaces", "secret-with-unicode-–"])(
+    "rejects a non-header-safe API key without reflecting it: %s",
+    (unsafeKey) => {
+      let thrown: unknown;
+      try {
+        createGoreloClient({
+          baseUrl: "https://api.aue.gorelo.io",
+          apiKey: unsafeKey,
+        });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toMatchObject({ code: "invalid_configuration" });
+      expect(String(thrown)).not.toContain(unsafeKey);
+    },
+  );
 });
 
 describe("Gorelo requests", () => {
@@ -94,7 +111,7 @@ describe("Gorelo requests", () => {
     expect(String(input)).toBe(
       "https://api.aue.gorelo.io/v1/clients?pageSize=1",
     );
-    expect(init).toMatchObject({ method: "GET", redirect: "error" });
+    expect(init).toMatchObject({ method: "GET", redirect: "manual" });
     const headers = new Headers(init?.headers);
     expect(headers.get("x-api-key")).toBe(API_KEY);
     expect(headers.get("authorization")).toBeNull();
@@ -346,7 +363,7 @@ describe("Gorelo requests", () => {
     expect(init).toMatchObject({
       method: "POST",
       body: JSON.stringify(request),
-      redirect: "error",
+      redirect: "manual",
     });
     const headers = new Headers(init?.headers);
     expect(headers.get("content-type")).toBe("application/json");
@@ -439,6 +456,33 @@ describe("Gorelo response safety", () => {
     expect(String(thrown)).not.toContain(API_KEY);
   });
 
+  it("blocks redirects without disclosing their Location", async () => {
+    const privateLocation = `https://private.example/tenant/${API_KEY}`;
+    let thrown: unknown;
+    try {
+      await client(async (_input, init) => {
+        expect(init?.redirect).toBe("manual");
+        return new Response(null, {
+          status: 307,
+          headers: { location: privateLocation },
+        });
+      }).listGroups();
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({
+      code: "redirect_error",
+      status: 307,
+      message: "Gorelo API returned a redirect that was blocked",
+      diagnostic: {
+        phase: "response",
+        reason: "redirect_rejected",
+      },
+    });
+    expect(String(thrown)).not.toContain(privateLocation);
+    expect(String(thrown)).not.toContain(API_KEY);
+  });
+
   it("does not disclose errors thrown by the network implementation", async () => {
     await expect(
       client(async () => {
@@ -448,9 +492,42 @@ describe("Gorelo response safety", () => {
       expect.objectContaining({
         code: "network_error",
         message: "Gorelo API request could not be completed",
+        diagnostic: {
+          phase: "request",
+          reason: "fetch_failure",
+        },
       }),
     );
   });
+
+  it.each([
+    ["ENOTFOUND", "dns_failure"],
+    ["ERR_TLS_CERT_ALTNAME_INVALID", "tls_failure"],
+    ["ECONNRESET", "connection_failure"],
+    ["ERR_WORKER_SUBREQUEST_LIMIT", "connection_limit"],
+    ["ERR_INVALID_CHAR", "invalid_header"],
+  ] as const)(
+    "maps allow-listed runtime code %s to the fixed reason %s",
+    async (runtimeCode, reason) => {
+      const privateDiagnostic = `private-network-${API_KEY}`;
+      let thrown: unknown;
+      try {
+        await client(async () => {
+          throw Object.assign(new Error(privateDiagnostic), {
+            code: runtimeCode,
+          });
+        }).listGroups();
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toMatchObject({
+        code: "network_error",
+        diagnostic: { phase: "request", reason },
+      });
+      expect(String(thrown)).not.toContain(privateDiagnostic);
+      expect(String(thrown)).not.toContain(API_KEY);
+    },
+  );
 
   it("rejects a declared oversized body before consuming it", async () => {
     const cancel = vi.fn(async () => undefined);

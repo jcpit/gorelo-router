@@ -185,9 +185,27 @@ export type GoreloClientErrorCode =
   | "invalid_configuration"
   | "timeout"
   | "network_error"
+  | "redirect_error"
   | "http_error"
   | "response_too_large"
   | "invalid_response";
+
+export type GoreloRequestFailurePhase = "request" | "response";
+
+export type GoreloNetworkFailureReason =
+  | "redirect_rejected"
+  | "connection_limit"
+  | "dns_failure"
+  | "tls_failure"
+  | "connection_failure"
+  | "invalid_header"
+  | "response_stream_failure"
+  | "fetch_failure";
+
+export interface GoreloClientDiagnostic {
+  phase: GoreloRequestFailurePhase;
+  reason?: GoreloNetworkFailureReason;
+}
 
 /** A deliberately redacted error: it never contains the API key or response body. */
 export class GoreloClientError extends Error {
@@ -197,6 +215,7 @@ export class GoreloClientError extends Error {
     readonly code: GoreloClientErrorCode,
     message: string,
     readonly status?: number,
+    readonly diagnostic?: GoreloClientDiagnostic,
   ) {
     super(message);
   }
@@ -631,10 +650,10 @@ class SecureGoreloClient implements GoreloClient {
     try {
       return await Promise.race([operation, timeout]);
     } catch (error) {
-      if (error instanceof GoreloClientError) throw error;
       if (timedOut || abortController.signal.aborted) {
         throw new GoreloClientError("timeout", "Gorelo API request timed out");
       }
+      if (error instanceof GoreloClientError) throw error;
       throw new GoreloClientError(
         "network_error",
         "Gorelo API request could not be completed",
@@ -668,10 +687,10 @@ class SecureGoreloClient implements GoreloClient {
     try {
       return await Promise.race([operation, timeout]);
     } catch (error) {
-      if (error instanceof GoreloClientError) throw error;
       if (timedOut || abortController.signal.aborted) {
         throw new GoreloClientError("timeout", "Gorelo API request timed out");
       }
+      if (error instanceof GoreloClientError) throw error;
       throw new GoreloClientError(
         "network_error",
         "Gorelo API request could not be completed",
@@ -686,19 +705,34 @@ class SecureGoreloClient implements GoreloClient {
     signal: AbortSignal,
     request: { method?: "GET" | "POST"; body?: string } = {},
   ): Promise<unknown> {
-    const response = await this.#fetch(url, {
-      method: request.method ?? "GET",
-      headers: {
-        Accept: "application/json",
-        ...(request.body === undefined
-          ? {}
-          : { "Content-Type": "application/json" }),
-        "X-API-Key": this.#apiKey,
-      },
-      ...(request.body === undefined ? {} : { body: request.body }),
-      redirect: "error",
-      signal,
-    });
+    let response: Response;
+    try {
+      response = await this.#fetch(url, {
+        method: request.method ?? "GET",
+        headers: {
+          Accept: "application/json",
+          ...(request.body === undefined
+            ? {}
+            : { "Content-Type": "application/json" }),
+          "X-API-Key": this.#apiKey,
+        },
+        ...(request.body === undefined ? {} : { body: request.body }),
+        redirect: "manual",
+        signal,
+      });
+    } catch (error) {
+      throw networkFailure(error, "request");
+    }
+
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new GoreloClientError(
+        "redirect_error",
+        "Gorelo API returned a redirect that was blocked",
+        response.status,
+        { phase: "response", reason: "redirect_rejected" },
+      );
+    }
 
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
@@ -706,11 +740,88 @@ class SecureGoreloClient implements GoreloClient {
         "http_error",
         `Gorelo API request failed with status ${response.status}`,
         response.status,
+        { phase: "response" },
       );
     }
 
-    return readBoundedJson(response, this.#maxResponseBytes);
+    try {
+      return await readBoundedJson(response, this.#maxResponseBytes);
+    } catch (error) {
+      if (error instanceof GoreloClientError) throw error;
+      throw networkFailure(error, "response");
+    }
   }
+}
+
+function diagnosticCauseCode(error: unknown): string | undefined {
+  try {
+    const candidates = [
+      error,
+      error instanceof Error ? error.cause : undefined,
+    ];
+    for (const candidate of candidates) {
+      if (
+        candidate &&
+        typeof candidate === "object" &&
+        "code" in candidate &&
+        typeof candidate.code === "string" &&
+        /^[A-Z0-9_]{1,64}$/i.test(candidate.code)
+      ) {
+        return candidate.code.toUpperCase();
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function networkFailure(
+  error: unknown,
+  phase: GoreloRequestFailurePhase,
+): GoreloClientError {
+  const causeCode = diagnosticCauseCode(error);
+  let reason: GoreloNetworkFailureReason;
+  if (phase === "response") reason = "response_stream_failure";
+  else if (
+    causeCode === "ERR_WORKER_CONNECTION_LIMIT" ||
+    causeCode === "ERR_WORKER_SUBREQUEST_LIMIT"
+  ) {
+    reason = "connection_limit";
+  } else if (causeCode === "ERR_INVALID_CHAR") {
+    reason = "invalid_header";
+  } else if (
+    causeCode === "ENOTFOUND" ||
+    causeCode === "EAI_AGAIN" ||
+    causeCode?.startsWith("ERR_DNS_")
+  ) {
+    reason = "dns_failure";
+  } else if (
+    causeCode?.startsWith("ERR_TLS_") ||
+    causeCode === "CERT_HAS_EXPIRED" ||
+    causeCode === "DEPTH_ZERO_SELF_SIGNED_CERT" ||
+    causeCode === "UNABLE_TO_VERIFY_LEAF_SIGNATURE"
+  ) {
+    reason = "tls_failure";
+  } else if (
+    causeCode === "ECONNREFUSED" ||
+    causeCode === "ECONNRESET" ||
+    causeCode === "ETIMEDOUT" ||
+    causeCode === "EHOSTUNREACH" ||
+    causeCode === "ENETUNREACH" ||
+    causeCode === "EPIPE" ||
+    causeCode === "UND_ERR_CONNECT_TIMEOUT" ||
+    causeCode === "UND_ERR_SOCKET"
+  ) {
+    reason = "connection_failure";
+  } else reason = "fetch_failure";
+
+  return new GoreloClientError(
+    "network_error",
+    "Gorelo API request could not be completed",
+    undefined,
+    { phase, reason },
+  );
 }
 
 function configurationError(message: string): GoreloClientError {
@@ -722,8 +833,7 @@ function validateApiKey(apiKey: string): string {
     typeof apiKey !== "string" ||
     apiKey.length === 0 ||
     apiKey.length > 4_096 ||
-    apiKey.trim() !== apiKey ||
-    /[\u0000-\u001f\u007f]/.test(apiKey)
+    !/^[\x21-\x7e]+$/.test(apiKey)
   ) {
     throw configurationError("Gorelo API key is invalid");
   }

@@ -398,7 +398,7 @@ Every `/api/v1` endpoint requires `Authorization: Bearer <ADMIN_API_TOKEN>`. `/h
 | -------- | ---------------------------------------------------------- | ---------------------------------------------------------- |
 | `GET`    | `/api/v1/runtime`                                          | Read policy posture and review/release capabilities        |
 | `GET`    | `/api/v1/setup/status`                                     | Read non-secret deployment/integration readiness           |
-| `POST`   | `/api/v1/integrations/gorelo/test`                         | Broad key/selector-catalog diagnostic                      |
+| `POST`   | `/api/v1/integrations/gorelo/test`                         | Seven bounded key/selector-catalog diagnostic probes       |
 | `GET`    | `/api/v1/integrations/gorelo/catalogs/:kind`               | Read a bounded cached/live Gorelo selector catalog         |
 | `GET`    | `/api/v1/integrations/gorelo/clients`                      | List/search imported clients and aliases                   |
 | `POST`   | `/api/v1/integrations/gorelo/clients/import`               | Import the complete bounded Gorelo client catalog          |

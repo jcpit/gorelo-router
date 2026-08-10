@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleFetch } from "../src/api";
+import { GORELO_SETUP_PROBE_TIMEOUT_MS } from "../src/gorelo-integration";
 import type { Env } from "../src/types";
 
 const ADMIN_TOKEN = "test-admin-token-0123456789-abcdef";
@@ -54,7 +55,7 @@ class TestDatabase {
 
 const databases: TestDatabase[] = [];
 
-function environment(): Env {
+function environment(overrides: Partial<Env> = {}): Env {
   const database = new TestDatabase();
   databases.push(database);
   return {
@@ -63,6 +64,7 @@ function environment(): Env {
     GORELO_API_KEY: API_KEY,
     GORELO_API_BASE_URL: "https://api.aue.gorelo.io",
     DEFAULT_GORELO_ADDRESS: "tickets@gorelo.example",
+    ...overrides,
   };
 }
 
@@ -88,25 +90,42 @@ function page(totalCount: number): Response {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   while (databases.length > 0) databases.pop()!.close();
 });
 
 describe("Gorelo integration API", () => {
-  it("tests every selector catalog, caches it, and never returns the key", async () => {
+  it("probes every selector catalog sequentially with bounded requests without caching full catalogs", async () => {
+    const requests: string[] = [];
+    let activeRequests = 0;
+    let maximumActiveRequests = 0;
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = new URL(String(input));
+        requests.push(`${url.pathname}${url.search}`);
         expect(init?.headers).toMatchObject({ "X-API-Key": API_KEY });
-        if (url.pathname === "/v1/clients") return page(12);
-        if (url.pathname === "/v1/assets/agents") return page(40);
-        if (url.pathname === "/v1/organization/users") return page(7);
-        if (url.pathname === "/v1/organization/groups")
-          return Response.json([]);
-        if (url.pathname === "/v1/tickets/statuses") return Response.json([]);
-        if (url.pathname === "/v1/tickets/tags") return Response.json([]);
-        if (url.pathname === "/v1/tickets/types") return Response.json([]);
-        return new Response(null, { status: 404 });
+        expect(init?.redirect).toBe("manual");
+        activeRequests += 1;
+        maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests);
+        await Promise.resolve();
+        const response =
+          url.pathname === "/v1/clients"
+            ? page(12)
+            : url.pathname === "/v1/assets/agents"
+              ? page(40)
+              : url.pathname === "/v1/organization/users"
+                ? page(7)
+                : [
+                      "/v1/organization/groups",
+                      "/v1/tickets/statuses",
+                      "/v1/tickets/tags",
+                      "/v1/tickets/types",
+                    ].includes(url.pathname)
+                  ? Response.json([])
+                  : new Response(null, { status: 404 });
+        activeRequests -= 1;
+        return response;
       },
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -134,17 +153,285 @@ describe("Gorelo integration API", () => {
       },
     });
     expect(JSON.stringify(body)).not.toContain(API_KEY);
-    expect(fetchMock).toHaveBeenCalledTimes(8);
+    expect(maximumActiveRequests).toBe(1);
+    expect(requests).toEqual([
+      "/v1/clients?pageSize=1",
+      "/v1/assets/agents?pageSize=1",
+      "/v1/organization/users?pageSize=1",
+      "/v1/organization/groups",
+      "/v1/tickets/statuses",
+      "/v1/tickets/tags",
+      "/v1/tickets/types",
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
+    expect(GORELO_SETUP_PROBE_TIMEOUT_MS * 7).toBeLessThan(25_000);
 
-    const cached = await handleFetch(
-      request("/api/v1/integrations/gorelo/catalogs/clients"),
-      env,
-    );
-    expect(cached.status).toBe(200);
-    await expect(cached.json()).resolves.toMatchObject({
-      catalog: { kind: "clients", totalCount: 12, cached: true },
+    const cacheRow = databases
+      .at(-1)!
+      .sqlite.prepare("SELECT COUNT(*) AS count FROM gorelo_catalog_cache")
+      .get() as { count: number };
+    expect(cacheRow.count).toBe(0);
+  });
+
+  it("reports the failed setup stage and request phase without leaking network diagnostics", async () => {
+    const privateDiagnostic = `DNS lookup exposed ${API_KEY}`;
+    const requests: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      requests.push(url.pathname);
+      if (url.pathname === "/v1/clients") return page(12);
+      if (url.pathname === "/v1/assets/agents") {
+        throw new TypeError(privateDiagnostic);
+      }
+      throw new Error("a later setup probe must not run");
     });
-    expect(fetchMock).toHaveBeenCalledTimes(8);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleFetch(
+      request("/api/v1/integrations/gorelo/test", { method: "POST" }),
+      environment(),
+    );
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      error: {
+        details: {
+          code: "network_error",
+          stage: "agent-assets",
+          phase: "request",
+          reason: "fetch_failure",
+        },
+      },
+    });
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain(API_KEY);
+    expect(serialized).not.toContain(privateDiagnostic);
+    expect(requests).toEqual(["/v1/clients", "/v1/assets/agents"]);
+  });
+
+  it("classifies a redirect response without following or exposing its Location and stops probing", async () => {
+    const privateLocation = `https://private.example/tenant/${API_KEY}`;
+    const requests: string[] = [];
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        requests.push(url.pathname);
+        expect(init?.redirect).toBe("manual");
+        if (url.pathname === "/v1/organization/groups") {
+          return new Response(null, {
+            status: 302,
+            headers: { location: privateLocation },
+          });
+        }
+        if (
+          url.pathname === "/v1/clients" ||
+          url.pathname === "/v1/assets/agents" ||
+          url.pathname === "/v1/organization/users"
+        ) {
+          return page(0);
+        }
+        throw new Error("a later setup probe must not run");
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleFetch(
+      request("/api/v1/integrations/gorelo/test", { method: "POST" }),
+      environment(),
+    );
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      error: {
+        details: {
+          code: "redirect_error",
+          stage: "groups",
+          phase: "response",
+          reason: "redirect_rejected",
+          upstreamStatus: 302,
+        },
+      },
+    });
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain(API_KEY);
+    expect(serialized).not.toContain(privateLocation);
+    expect(serialized).not.toContain("private.example");
+    expect(requests).toEqual([
+      "/v1/clients",
+      "/v1/assets/agents",
+      "/v1/organization/users",
+      "/v1/organization/groups",
+    ]);
+  });
+
+  it("classifies a response stream failure at its setup stage without leaking the stream error", async () => {
+    const privateDiagnostic = `response stream exposed ${API_KEY}`;
+    const requests: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      requests.push(url.pathname);
+      if (url.pathname === "/v1/clients") return page(0);
+      if (url.pathname === "/v1/assets/agents") return page(0);
+      if (url.pathname === "/v1/organization/users") {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.error(new Error(privateDiagnostic));
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error("a later setup probe must not run");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleFetch(
+      request("/api/v1/integrations/gorelo/test", { method: "POST" }),
+      environment(),
+    );
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      error: {
+        details: {
+          code: "network_error",
+          stage: "users",
+          phase: "response",
+          reason: "response_stream_failure",
+        },
+      },
+    });
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain(API_KEY);
+    expect(serialized).not.toContain(privateDiagnostic);
+    expect(requests).toEqual([
+      "/v1/clients",
+      "/v1/assets/agents",
+      "/v1/organization/users",
+    ]);
+  });
+
+  it("classifies client construction failures as connection-stage diagnostics", async () => {
+    const invalidSecret = ` ${API_KEY}`;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleFetch(
+      request("/api/v1/integrations/gorelo/test", { method: "POST" }),
+      environment({ GORELO_API_KEY: invalidSecret }),
+    );
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      error: {
+        details: {
+          code: "invalid_configuration",
+          stage: "connection",
+          phase: "request",
+        },
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain(invalidSecret);
+    expect(JSON.stringify(body)).not.toContain(API_KEY);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns the failed stage before the dashboard request deadline", async () => {
+    const privateDiagnostic = `slow-upstream-${API_KEY}`;
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new Error(privateDiagnostic)),
+            { once: true },
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleFetch(
+      request("/api/v1/integrations/gorelo/test", { method: "POST" }),
+      environment(),
+    );
+    expect(response.status).toBe(504);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      error: {
+        details: {
+          code: "timeout",
+          stage: "clients",
+          phase: "request",
+        },
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain(privateDiagnostic);
+    expect(JSON.stringify(body)).not.toContain(API_KEY);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [401, 502, "authentication_failed"],
+    [403, 502, "authentication_failed"],
+    [429, 503, "rate_limited"],
+  ] as const)(
+    "reports upstream HTTP %i with a safe response-stage classification",
+    async (upstreamStatus, responseStatus, code) => {
+      const privateBody = `PRIVATE-UPSTREAM-${API_KEY}`;
+      const fetchMock = vi.fn(async () =>
+        Response.json(
+          { privateBody },
+          { status: upstreamStatus, statusText: privateBody },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const response = await handleFetch(
+        request("/api/v1/integrations/gorelo/test", { method: "POST" }),
+        environment(),
+      );
+      expect(response.status).toBe(responseStatus);
+      const body = await response.json();
+      expect(body).toMatchObject({
+        error: {
+          details: {
+            code,
+            stage: "clients",
+            phase: "response",
+            upstreamStatus,
+          },
+        },
+      });
+      expect(JSON.stringify(body)).not.toContain(privateBody);
+      expect(JSON.stringify(body)).not.toContain(API_KEY);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("reports malformed provider JSON as a redacted response-stage failure", async () => {
+    const privateBody = `not-json-${API_KEY}`;
+    const fetchMock = vi.fn(async () => new Response(privateBody));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleFetch(
+      request("/api/v1/integrations/gorelo/test", { method: "POST" }),
+      environment(),
+    );
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      error: {
+        details: {
+          code: "invalid_response",
+          stage: "clients",
+          phase: "response",
+        },
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain(privateBody);
+    expect(JSON.stringify(body)).not.toContain(API_KEY);
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("requires client scoping for contact and location catalogs", async () => {

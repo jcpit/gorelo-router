@@ -410,6 +410,18 @@ describe("durable Gorelo create orchestration", () => {
         safeError: "Gorelo API returned an uncertain server response",
       },
       {
+        name: "redirect",
+        response: async () =>
+          new Response(null, {
+            status: 307,
+            headers: {
+              location: `https://redirect.example/${API_KEY}/PRIVATE-LOCATION`,
+            },
+          }),
+        safeError:
+          "Gorelo API create outcome is uncertain after a blocked redirect",
+      },
+      {
         name: "invalid-response",
         response: async () =>
           Response.json({

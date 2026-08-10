@@ -1704,6 +1704,7 @@ export async function handleFetch(
         ...(error.upstreamStatus === undefined
           ? {}
           : { upstreamStatus: error.upstreamStatus }),
+        ...(error.diagnostic ?? {}),
       });
     }
     console.error("HTTP request failed", error);

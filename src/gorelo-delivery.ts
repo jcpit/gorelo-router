@@ -40,6 +40,7 @@ const SAFE_ERRORS = Object.freeze({
   rateLimited:
     "Gorelo rate limited the create request; automatic replay is disabled",
   server: "Gorelo API returned an uncertain server response",
+  redirect: "Gorelo API create outcome is uncertain after a blocked redirect",
   network: "Gorelo API create outcome is uncertain after a network failure",
   timeout: "Gorelo API create outcome is uncertain after timeout",
   invalidResponse: "Gorelo API create outcome is not confirmed",
@@ -257,6 +258,12 @@ function errorDisposition(error: GoreloClientError): {
       return { outcome: "uncertain", safeError: SAFE_ERRORS.timeout };
     case "network_error":
       return { outcome: "uncertain", safeError: SAFE_ERRORS.network };
+    case "redirect_error":
+      return {
+        outcome: "uncertain",
+        safeError: SAFE_ERRORS.redirect,
+        ...(httpStatus === undefined ? {} : { httpStatus }),
+      };
     case "response_too_large":
       return {
         outcome: "uncertain",

@@ -1384,9 +1384,9 @@ const ADMIN_HTML = String.raw`<!doctype html>
       const details = data && data.error && data.error.details ? "\n"+JSON.stringify(data.error.details,null,2) : "";
       return title+details;
     }
-    async function api(path,options={}) {
+    async function api(path,options={},timeoutMs=15000) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(),15000);
+      const timeout = setTimeout(() => controller.abort(),timeoutMs);
       activeRequests+=1; updateConnectionState();
       try {
         const response = await fetch(path,{...options,signal:controller.signal,headers:{"authorization":"Bearer "+token,"content-type":"application/json",...(options.headers||{})}});
@@ -1399,7 +1399,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
         if (!response.ok) { const requestError=new Error(formatApiError(response,data,raw)); requestError.status=response.status; requestError.details=data&&data.error&&data.error.details; throw requestError; }
         return data;
       } catch (error) {
-        if (error && error.name === "AbortError") throw new Error("The Worker did not respond within 15 seconds.");
+        if (error && error.name === "AbortError") throw new Error("The Worker did not respond before the request deadline.");
         throw error;
       } finally { clearTimeout(timeout); activeRequests=Math.max(0,activeRequests-1); updateConnectionState(); }
     }
@@ -2393,7 +2393,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       clearError("setupNotice");
       try {
         await runBusy(byId("testGorelo"),"Testing…",async()=>{
-          const data=await api("/api/v1/integrations/gorelo/test",{method:"POST"}); const result=data&&data.gorelo;
+          const data=await api("/api/v1/integrations/gorelo/test",{method:"POST"},25000); const result=data&&data.gorelo;
           const validCounts=result&&result.catalogCounts&&typeof result.catalogCounts==="object"&&!Array.isArray(result.catalogCounts)&&Object.values(result.catalogCounts).every((count)=>typeof count==="number"&&Number.isFinite(count)&&count>=0);
           if (!result||result.connected!==true||typeof result.checkedAt!=="string"||typeof result.baseUrl!=="string"||!validCounts) throw new Error("The Worker returned an invalid Gorelo connection result.");
           goreloTestState=result; renderGoreloTest(result);

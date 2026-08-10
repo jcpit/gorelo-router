@@ -214,7 +214,11 @@ describe("HTTP API", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: {
         title: expect.stringContaining("GORELO_API_KEY"),
-        details: { code: "not_configured" },
+        details: {
+          code: "not_configured",
+          stage: "connection",
+          phase: "request",
+        },
       },
     });
   });
