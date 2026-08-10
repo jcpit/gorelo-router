@@ -175,8 +175,8 @@ const safeDestinationId = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const safeEventType = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const safeAliasScope = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const safeHeaderName = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
-const safeUuid =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const safeGoreloGuid =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const controlCharacters = /[\u0000-\u001f\u007f]/;
 const unsafeMarkerCharacters = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 const forbiddenFieldKeys = new Set([
@@ -426,8 +426,8 @@ const uniquePositiveGoreloIds = z
   .refine((values) => new Set(values).size === values.length, {
     message: "Gorelo IDs must be unique",
   });
-const uniqueUuidList = z
-  .array(z.string().regex(safeUuid))
+const uniqueGoreloGuidList = z
+  .array(z.string().regex(safeGoreloGuid))
   .max(100)
   .refine(
     (values) =>
@@ -566,7 +566,7 @@ const createTicketActionSchema = z
     assistingAssigneeIds: uniquePositiveGoreloIds.optional(),
     watcherIds: uniquePositiveGoreloIds.optional(),
     tagIds: uniquePositiveGoreloIds.optional(),
-    agentAssetIds: uniqueUuidList.optional(),
+    agentAssetIds: uniqueGoreloGuidList.optional(),
     sendTicketCreatedEmail: z.boolean().default(false),
     isUnread: z.boolean().default(true),
   })

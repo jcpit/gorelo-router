@@ -3,7 +3,7 @@ import {
   GoreloClientError,
   type GoreloClient,
   type GoreloClientCatalogItem,
-  type GoreloNetworkFailureReason,
+  type GoreloFailureReason,
   type GoreloPage,
   type GoreloRequestFailurePhase,
 } from "./gorelo";
@@ -71,7 +71,7 @@ export interface GoreloConnectionTestResult {
 export interface GoreloIntegrationDiagnostic {
   stage: GoreloCatalogKind | "connection";
   phase?: GoreloRequestFailurePhase;
-  reason?: GoreloNetworkFailureReason;
+  reason?: GoreloFailureReason;
 }
 
 export class GoreloIntegrationError extends Error {

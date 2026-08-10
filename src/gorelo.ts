@@ -202,9 +202,18 @@ export type GoreloNetworkFailureReason =
   | "response_stream_failure"
   | "fetch_failure";
 
+export type GoreloResponseFailureReason =
+  | "response_rejected"
+  | "invalid_catalog_item"
+  | "invalid_pagination"
+  | "invalid_payload";
+
+export type GoreloFailureReason =
+  GoreloNetworkFailureReason | GoreloResponseFailureReason;
+
 export interface GoreloClientDiagnostic {
   phase: GoreloRequestFailurePhase;
-  reason?: GoreloNetworkFailureReason;
+  reason?: GoreloFailureReason;
 }
 
 /** A deliberately redacted error: it never contains the API key or response body. */
@@ -242,6 +251,9 @@ const optionalStatusSchema = z
   .object({ name: z.string().max(256).nullable().optional() })
   .nullable()
   .optional();
+// Gorelo exposes .NET Guid values. Their canonical text form is 8-4-4-4-12,
+// but it does not necessarily carry RFC UUID version and variant bits.
+const goreloGuidSchema = z.string().guid();
 
 const clientSchema = z.object({
   id: positiveIdSchema,
@@ -275,11 +287,11 @@ const contactSchema = z.object({
 });
 
 const agentAssetSchema = z.object({
-  id: z.string().uuid(),
+  id: goreloGuidSchema,
   name: optionalNameSchema,
   displayName: optionalNameSchema,
-  clientId: positiveIdSchema.nullable().optional(),
-  clientLocationId: positiveIdSchema.nullable().optional(),
+  clientId: safeIdSchema.nullable().optional(),
+  clientLocationId: safeIdSchema.nullable().optional(),
   serialNo: z.string().max(512).nullable().optional(),
   status: optionalStatusSchema,
 });
@@ -318,7 +330,7 @@ const ticketTypeSchema = z.object({
 const ticketResponseSchema = z.object({
   statusCode: z.number().int().min(100).max(599).optional(),
   isSuccess: z.boolean(),
-  data: z.object({ id: z.string().uuid().nullable() }).nullable(),
+  data: z.object({ id: goreloGuidSchema.nullable() }).nullable(),
   dataContext: z
     .object({ traceId: z.string().max(512).nullable().optional() })
     .passthrough()
@@ -372,7 +384,7 @@ const ticketRequestSchema = z
     AssistingAssigneeIds: z.array(positiveIdSchema).max(100).optional(),
     WatcherIds: z.array(positiveIdSchema).max(100).optional(),
     TagIds: z.array(positiveIdSchema).max(100).optional(),
-    AgentAssetIds: z.array(z.string().uuid()).max(100).optional(),
+    AgentAssetIds: z.array(goreloGuidSchema).max(100).optional(),
     CustomAssetIds: z.array(z.string().uuid()).max(100).optional(),
     UptimeIds: z.array(z.string().uuid()).max(100).optional(),
     SendTicketCreatedEmail: z.boolean().optional(),
@@ -511,8 +523,8 @@ class SecureGoreloClient implements GoreloClient {
       id: item.id,
       name: label(item.displayName ?? item.name, "Agent asset", item.id),
       displayName: item.displayName ?? null,
-      clientId: item.clientId ?? null,
-      locationId: item.clientLocationId ?? null,
+      clientId: item.clientId || null,
+      locationId: item.clientLocationId || null,
       serialNumber: item.serialNo ?? null,
       status: item.status?.name ?? null,
     }));
@@ -587,7 +599,7 @@ class SecureGoreloClient implements GoreloClient {
     const parsed = ticketResponseSchema.safeParse(
       normalizeResponseEnvelope(payload),
     );
-    if (!parsed.success) throw invalidEnvelope();
+    if (!parsed.success) throw invalidEnvelope("invalid_payload");
     if (!parsed.data.isSuccess || !parsed.data.data?.id) {
       throw new GoreloClientError(
         "invalid_response",
@@ -615,7 +627,7 @@ class SecureGoreloClient implements GoreloClient {
     const parsed = alertResponseSchema.safeParse(
       normalizeResponseEnvelope(payload),
     );
-    if (!parsed.success) throw invalidEnvelope();
+    if (!parsed.success) throw invalidEnvelope("invalid_payload");
     if (!parsed.data.isSuccess || parsed.data.data !== true) {
       throw new GoreloClientError(
         "invalid_response",
@@ -945,7 +957,9 @@ function parsePage<TInput, TOutput>(
   mapItem: (item: TInput) => TOutput,
 ): GoreloPage<TOutput> {
   const envelope = normalizeResponseEnvelope(payload);
-  if (envelope.isSuccess === false) throw invalidEnvelope();
+  if (envelope.isSuccess === false) {
+    throw invalidEnvelope("response_rejected");
+  }
   const context = isPlainRecord(envelope.dataContext)
     ? normalizeKnownKeys(envelope.dataContext)
     : undefined;
@@ -967,7 +981,14 @@ function parsePage<TInput, TOutput>(
     ...pageMetadataSchema,
   });
   const parsed = schema.safeParse(normalizedPayload);
-  if (!parsed.success) throw invalidEnvelope();
+  if (!parsed.success) {
+    const containsInvalidItem = parsed.error.issues.some(
+      (issue) => issue.path[0] === "data",
+    );
+    throw invalidEnvelope(
+      containsInvalidItem ? "invalid_catalog_item" : "invalid_pagination",
+    );
+  }
   return {
     data: (parsed.data.data ?? []).map(mapItem),
     totalCount: parsed.data.totalCount,
@@ -984,13 +1005,15 @@ function parseArray<TInput, TOutput>(
   mapItem: (item: TInput) => TOutput,
 ): TOutput[] {
   const envelope = normalizeResponseEnvelope(payload);
-  if (envelope.isSuccess === false) throw invalidEnvelope();
+  if (envelope.isSuccess === false) {
+    throw invalidEnvelope("response_rejected");
+  }
   const items = Array.isArray(payload) ? payload : envelope.data;
   const parsed = z
     .array(itemSchema)
     .max(MAX_DIRECT_CATALOG_ITEMS)
     .safeParse(Array.isArray(items) ? items.map(normalizeCatalogItem) : items);
-  if (!parsed.success) throw invalidEnvelope();
+  if (!parsed.success) throw invalidEnvelope("invalid_catalog_item");
   return parsed.data.map(mapItem);
 }
 
@@ -1078,10 +1101,12 @@ function normalizeResponseEnvelope(payload: unknown): Record<string, unknown> {
   return normalized;
 }
 
-function invalidEnvelope(): GoreloClientError {
+function invalidEnvelope(reason: GoreloFailureReason): GoreloClientError {
   return new GoreloClientError(
     "invalid_response",
     "Gorelo API returned an unexpected response envelope",
+    undefined,
+    { phase: "response", reason },
   );
 }
 

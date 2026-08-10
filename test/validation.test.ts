@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { dryRunEmailSchema, ruleInputSchema } from "../src/validation";
 
 describe("rule validation", () => {
+  const canonicalGoreloGuid = "01234567-89ab-0cde-0123-456789abcdef";
+
   it("applies safe defaults", () => {
     const result = ruleInputSchema.parse({
       name: "Block sender",
@@ -388,6 +390,33 @@ describe("rule validation", () => {
         },
       }).success,
     ).toBe(false);
+  });
+
+  it("accepts canonical Gorelo Guid asset IDs while rejecting malformed values", () => {
+    const parseAssetId = (assetId: string) =>
+      ruleInputSchema.safeParse({
+        name: "Fixed client asset ticket",
+        conditions: [{ field: "to", operator: "contains", value: "@" }],
+        action: {
+          type: "create_ticket",
+          fields: [{ key: "summary", source: "subject" }],
+          clientId: 42,
+          titleTemplate: "{{summary}}",
+          statusId: 1,
+          groupId: 2,
+          typeId: 3,
+          agentAssetIds: [assetId],
+        },
+      });
+
+    expect(parseAssetId(canonicalGoreloGuid).success).toBe(true);
+    for (const malformed of [
+      `{${canonicalGoreloGuid}}`,
+      "01234567-89ab-0cde-0123-456789abcdeg",
+      "not-a-guid",
+    ]) {
+      expect(parseAssetId(malformed).success).toBe(false);
+    }
   });
 
   it("requires a number for numeric comparisons", () => {

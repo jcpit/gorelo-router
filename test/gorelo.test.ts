@@ -8,6 +8,7 @@ import {
 
 const API_KEY = "test-gorelo-key-that-must-stay-secret";
 const UUID = "ce7cb8a4-29d5-4b60-adba-fab15873446c";
+const CANONICAL_GUID = "01234567-89ab-0cde-0123-456789abcdef";
 
 function page(data: unknown[] = []): Record<string, unknown> {
   return {
@@ -333,6 +334,55 @@ describe("Gorelo requests", () => {
     });
   });
 
+  it("accepts Gorelo's canonical Guid and normalizes an unassigned agent client", async () => {
+    const fetchMock = vi.fn<GoreloFetch>(async () =>
+      json({
+        StatusCode: 200,
+        IsSuccess: true,
+        Data: [
+          {
+            Id: CANONICAL_GUID,
+            Name: "host-01",
+            DisplayName: "Server 01",
+            ClientId: 0,
+            ClientLocationId: null,
+            SerialNo: "SER123",
+            Status: { Id: 1, Name: "Online" },
+          },
+        ],
+        DataContext: {
+          Pagination: {
+            TotalCount: 1,
+            NextCursor: null,
+            PreviousCursor: null,
+            HasMore: false,
+            HasPrevious: false,
+          },
+        },
+        Notifications: [],
+      }),
+    );
+
+    await expect(client(fetchMock).listAgentAssets()).resolves.toEqual({
+      data: [
+        {
+          id: CANONICAL_GUID,
+          name: "Server 01",
+          displayName: "Server 01",
+          clientId: null,
+          locationId: null,
+          serialNumber: "SER123",
+          status: "Online",
+        },
+      ],
+      totalCount: 1,
+      nextCursor: null,
+      previousCursor: null,
+      hasMore: false,
+      hasPrevious: false,
+    });
+  });
+
   it("creates tickets with the exact official body and returns the provider ID", async () => {
     const fetchMock = vi.fn<GoreloFetch>(async () =>
       json({
@@ -368,6 +418,33 @@ describe("Gorelo requests", () => {
     const headers = new Headers(init?.headers);
     expect(headers.get("content-type")).toBe("application/json");
     expect(headers.get("x-api-key")).toBe(API_KEY);
+  });
+
+  it("accepts canonical Gorelo Guid asset and ticket identifiers", async () => {
+    const fetchMock = vi.fn<GoreloFetch>(async () =>
+      json({
+        StatusCode: 200,
+        IsSuccess: true,
+        Data: { Id: CANONICAL_GUID },
+        Notifications: [],
+      }),
+    );
+    const request = {
+      Title: "Agent offline",
+      StatusId: 10,
+      GroupId: 9,
+      TypeId: 12,
+      AgentAssetIds: [CANONICAL_GUID],
+    };
+
+    await expect(client(fetchMock).createTicket(request)).resolves.toEqual({
+      id: CANONICAL_GUID,
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]![1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify(request),
+    });
   });
 
   it("creates alerts through the documented trailing-slash endpoint", async () => {
@@ -589,4 +666,36 @@ describe("Gorelo response safety", () => {
       ).listTicketTags(),
     ).rejects.toMatchObject({ code: "invalid_response" });
   });
+
+  it.each([
+    { description: "a braced Guid", id: `{${CANONICAL_GUID}}`, clientId: 0 },
+    {
+      description: "a non-hex Guid",
+      id: "01234567-89ab-0cde-0123-456789abcdeg",
+      clientId: 0,
+    },
+    {
+      description: "a negative client relationship",
+      id: CANONICAL_GUID,
+      clientId: -1,
+    },
+  ])(
+    "rejects an agent response containing $description",
+    async ({ id, clientId }) => {
+      await expect(
+        client(async () =>
+          json(
+            page([
+              {
+                id,
+                name: "Unsafe agent",
+                clientId,
+                clientLocationId: null,
+              },
+            ]),
+          ),
+        ).listAgentAssets(),
+      ).rejects.toMatchObject({ code: "invalid_response" });
+    },
+  );
 });

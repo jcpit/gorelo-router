@@ -209,6 +209,48 @@ describe("Gorelo integration API", () => {
     expect(requests).toEqual(["/v1/clients", "/v1/assets/agents"]);
   });
 
+  it("reports only an allow-listed response-shape reason for an invalid agent item", async () => {
+    const privateAssetName = `private-agent-${API_KEY}`;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v1/clients") return page(12);
+      if (url.pathname === "/v1/assets/agents") {
+        return Response.json({
+          data: [{ id: "not-a-guid", name: privateAssetName }],
+          totalCount: 1,
+          nextCursor: null,
+          previousCursor: null,
+          hasMore: false,
+          hasPrevious: false,
+        });
+      }
+      throw new Error("a later setup probe must not run");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleFetch(
+      request("/api/v1/integrations/gorelo/test", { method: "POST" }),
+      environment(),
+    );
+
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      error: {
+        details: {
+          code: "invalid_response",
+          stage: "agent-assets",
+          phase: "response",
+          reason: "invalid_catalog_item",
+        },
+      },
+    });
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain(API_KEY);
+    expect(serialized).not.toContain(privateAssetName);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("classifies a redirect response without following or exposing its Location and stops probing", async () => {
     const privateLocation = `https://private.example/tenant/${API_KEY}`;
     const requests: string[] = [];
