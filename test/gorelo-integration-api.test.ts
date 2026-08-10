@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleFetch } from "../src/api";
-import { GORELO_SETUP_PROBE_TIMEOUT_MS } from "../src/gorelo-integration";
+import {
+  GORELO_SETUP_DEFAULT_RATE_LIMIT_WAIT_MS,
+  GORELO_SETUP_MAX_RATE_LIMIT_WAIT_MS,
+  GORELO_SETUP_PROBE_INTERVAL_MS,
+  GORELO_SETUP_PROBE_TIMEOUT_MS,
+} from "../src/gorelo-integration";
 import type { Env } from "../src/types";
 
 const ADMIN_TOKEN = "test-admin-token-0123456789-abcdef";
@@ -89,6 +94,27 @@ function page(totalCount: number): Response {
   });
 }
 
+async function settleWithFakeTimers<T>(pending: Promise<T>): Promise<T> {
+  let settled = false;
+  void pending.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    },
+  );
+  for (let elapsed = 0; !settled && elapsed <= 24_000; elapsed += 50) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await vi.advanceTimersByTimeAsync(50);
+  }
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  if (!settled) {
+    throw new Error("operation did not settle inside the dashboard deadline");
+  }
+  return pending;
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -97,13 +123,18 @@ afterEach(() => {
 
 describe("Gorelo integration API", () => {
   it("probes every selector catalog sequentially with bounded requests without caching full catalogs", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const startedAt = new Date("2026-08-10T00:00:00.000Z").getTime();
+    vi.setSystemTime(startedAt);
     const requests: string[] = [];
+    const requestTimes: number[] = [];
     let activeRequests = 0;
     let maximumActiveRequests = 0;
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = new URL(String(input));
         requests.push(`${url.pathname}${url.search}`);
+        requestTimes.push(Date.now());
         expect(init?.headers).toMatchObject({ "X-API-Key": API_KEY });
         expect(init?.redirect).toBe("manual");
         activeRequests += 1;
@@ -131,10 +162,11 @@ describe("Gorelo integration API", () => {
     vi.stubGlobal("fetch", fetchMock);
     const env = environment();
 
-    const response = await handleFetch(
+    const pendingResponse = handleFetch(
       request("/api/v1/integrations/gorelo/test", { method: "POST" }),
       env,
     );
+    const response = await settleWithFakeTimers(pendingResponse);
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body).toMatchObject({
@@ -164,7 +196,15 @@ describe("Gorelo integration API", () => {
       "/v1/tickets/types",
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(7);
-    expect(GORELO_SETUP_PROBE_TIMEOUT_MS * 7).toBeLessThan(25_000);
+    expect(requestTimes[0]).toBeGreaterThanOrEqual(startedAt);
+    expect(
+      requestTimes.slice(1).map((time, index) => time - requestTimes[index]!),
+    ).toEqual(Array(6).fill(GORELO_SETUP_PROBE_INTERVAL_MS));
+    expect(
+      GORELO_SETUP_PROBE_TIMEOUT_MS * 8 +
+        GORELO_SETUP_PROBE_INTERVAL_MS * 6 +
+        GORELO_SETUP_MAX_RATE_LIMIT_WAIT_MS,
+    ).toBeLessThan(25_000);
 
     const cacheRow = databases
       .at(-1)!
@@ -174,6 +214,7 @@ describe("Gorelo integration API", () => {
   });
 
   it("reports the failed setup stage and request phase without leaking network diagnostics", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     const privateDiagnostic = `DNS lookup exposed ${API_KEY}`;
     const requests: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -187,10 +228,11 @@ describe("Gorelo integration API", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await handleFetch(
+    const pendingResponse = handleFetch(
       request("/api/v1/integrations/gorelo/test", { method: "POST" }),
       environment(),
     );
+    const response = await settleWithFakeTimers(pendingResponse);
     expect(response.status).toBe(502);
     const body = await response.json();
     expect(body).toMatchObject({
@@ -210,6 +252,7 @@ describe("Gorelo integration API", () => {
   });
 
   it("reports only an allow-listed response-shape reason for an invalid agent item", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     const privateAssetName = `private-agent-${API_KEY}`;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
@@ -228,10 +271,11 @@ describe("Gorelo integration API", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await handleFetch(
+    const pendingResponse = handleFetch(
       request("/api/v1/integrations/gorelo/test", { method: "POST" }),
       environment(),
     );
+    const response = await settleWithFakeTimers(pendingResponse);
 
     expect(response.status).toBe(502);
     const body = await response.json();
@@ -252,6 +296,7 @@ describe("Gorelo integration API", () => {
   });
 
   it("classifies a redirect response without following or exposing its Location and stops probing", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     const privateLocation = `https://private.example/tenant/${API_KEY}`;
     const requests: string[] = [];
     const fetchMock = vi.fn(
@@ -277,10 +322,11 @@ describe("Gorelo integration API", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await handleFetch(
+    const pendingResponse = handleFetch(
       request("/api/v1/integrations/gorelo/test", { method: "POST" }),
       environment(),
     );
+    const response = await settleWithFakeTimers(pendingResponse);
     expect(response.status).toBe(502);
     const body = await response.json();
     expect(body).toMatchObject({
@@ -307,6 +353,7 @@ describe("Gorelo integration API", () => {
   });
 
   it("classifies a response stream failure at its setup stage without leaking the stream error", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     const privateDiagnostic = `response stream exposed ${API_KEY}`;
     const requests: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -328,10 +375,11 @@ describe("Gorelo integration API", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await handleFetch(
+    const pendingResponse = handleFetch(
       request("/api/v1/integrations/gorelo/test", { method: "POST" }),
       environment(),
     );
+    const response = await settleWithFakeTimers(pendingResponse);
     expect(response.status).toBe(502);
     const body = await response.json();
     expect(body).toMatchObject({
@@ -380,6 +428,7 @@ describe("Gorelo integration API", () => {
   });
 
   it("returns the failed stage before the dashboard request deadline", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     const privateDiagnostic = `slow-upstream-${API_KEY}`;
     const fetchMock = vi.fn(
       async (_input: RequestInfo | URL, init?: RequestInit) =>
@@ -393,10 +442,11 @@ describe("Gorelo integration API", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await handleFetch(
+    const pendingResponse = handleFetch(
       request("/api/v1/integrations/gorelo/test", { method: "POST" }),
       environment(),
     );
+    const response = await settleWithFakeTimers(pendingResponse);
     expect(response.status).toBe(504);
     const body = await response.json();
     expect(body).toMatchObject({
@@ -413,10 +463,220 @@ describe("Gorelo integration API", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
+  it("retries one rate-limited setup GET after Retry-After and completes the diagnostic", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const startedAt = new Date("2026-08-10T00:00:00.000Z").getTime();
+    vi.setSystemTime(startedAt);
+    const privateBody = `PRIVATE-UPSTREAM-${API_KEY}`;
+    const requests: string[] = [];
+    const ticketTypeRequestTimes: number[] = [];
+    let ticketTypeAttempts = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      requests.push(url.pathname);
+      if (url.pathname === "/v1/tickets/types") {
+        ticketTypeAttempts += 1;
+        ticketTypeRequestTimes.push(Date.now());
+        if (ticketTypeAttempts === 1) {
+          return Response.json(
+            { privateBody },
+            { status: 429, headers: { "Retry-After": "1" } },
+          );
+        }
+        return Response.json([]);
+      }
+      if (
+        url.pathname === "/v1/clients" ||
+        url.pathname === "/v1/assets/agents" ||
+        url.pathname === "/v1/organization/users"
+      ) {
+        return page(0);
+      }
+      return Response.json([]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pendingResponse = handleFetch(
+      request("/api/v1/integrations/gorelo/test", { method: "POST" }),
+      environment(),
+    );
+    const response = await settleWithFakeTimers(pendingResponse);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      gorelo: {
+        connected: true,
+        catalogCounts: { "ticket-types": 0 },
+      },
+    });
+    expect(ticketTypeRequestTimes).toHaveLength(2);
+    expect(ticketTypeRequestTimes[1]! - ticketTypeRequestTimes[0]!).toBe(1_000);
+    expect(requests).toHaveLength(8);
+    expect(
+      requests.filter((path) => path === "/v1/tickets/types"),
+    ).toHaveLength(2);
+    expect(JSON.stringify(body)).not.toContain(privateBody);
+    expect(JSON.stringify(body)).not.toContain(API_KEY);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["malformed", `not-a-delay-${API_KEY}`],
+  ] as const)(
+    "retries a 429 only once using the short fallback for a %s Retry-After, then preserves the safe failure",
+    async (_description, retryAfter) => {
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+      const startedAt = new Date("2026-08-10T00:00:00.000Z").getTime();
+      vi.setSystemTime(startedAt);
+      const privateBody = `PRIVATE-UPSTREAM-${API_KEY}`;
+      const requestTimes: number[] = [];
+      const fetchMock = vi.fn(async () => {
+        requestTimes.push(Date.now());
+        return Response.json(
+          { privateBody },
+          {
+            status: 429,
+            statusText: privateBody,
+            ...(retryAfter === undefined
+              ? {}
+              : { headers: { "Retry-After": retryAfter } }),
+          },
+        );
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const pendingResponse = handleFetch(
+        request("/api/v1/integrations/gorelo/test", { method: "POST" }),
+        environment(),
+      );
+      const response = await settleWithFakeTimers(pendingResponse);
+
+      expect(response.status).toBe(503);
+      const body = await response.json();
+      expect(body).toMatchObject({
+        error: {
+          details: {
+            code: "rate_limited",
+            stage: "clients",
+            phase: "response",
+            upstreamStatus: 429,
+          },
+        },
+      });
+      expect(requestTimes[0]).toBeGreaterThanOrEqual(startedAt);
+      expect(requestTimes).toHaveLength(2);
+      expect(requestTimes[1]! - requestTimes[0]!).toBe(
+        GORELO_SETUP_DEFAULT_RATE_LIMIT_WAIT_MS,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(JSON.stringify(body)).not.toContain(privateBody);
+      expect(JSON.stringify(body)).not.toContain(API_KEY);
+    },
+  );
+
+  it("allows only one rate-limit retry across the complete setup diagnostic", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const requests: string[] = [];
+    let clientAttempts = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      requests.push(url.pathname);
+      if (url.pathname === "/v1/clients") {
+        clientAttempts += 1;
+        if (clientAttempts === 1) {
+          return new Response(null, {
+            status: 429,
+            headers: { "Retry-After": "1" },
+          });
+        }
+        return page(0);
+      }
+      if (url.pathname === "/v1/tickets/types") {
+        return new Response(null, {
+          status: 429,
+          headers: { "Retry-After": "1" },
+        });
+      }
+      if (
+        url.pathname === "/v1/assets/agents" ||
+        url.pathname === "/v1/organization/users"
+      ) {
+        return page(0);
+      }
+      return Response.json([]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pendingResponse = handleFetch(
+      request("/api/v1/integrations/gorelo/test", { method: "POST" }),
+      environment(),
+    );
+    const response = await settleWithFakeTimers(pendingResponse);
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        details: {
+          code: "rate_limited",
+          stage: "ticket-types",
+          phase: "response",
+          upstreamStatus: 429,
+        },
+      },
+    });
+    expect(requests.filter((path) => path === "/v1/clients")).toHaveLength(2);
+    expect(
+      requests.filter((path) => path === "/v1/tickets/types"),
+    ).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
+  });
+
+  it("does not wait or retry when Retry-After exceeds the diagnostic bound", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const privateBody = `PRIVATE-UPSTREAM-${API_KEY}`;
+    const fetchMock = vi.fn(async () =>
+      Response.json(
+        { privateBody },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(
+              GORELO_SETUP_MAX_RATE_LIMIT_WAIT_MS / 1_000 + 1,
+            ),
+          },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pendingResponse = handleFetch(
+      request("/api/v1/integrations/gorelo/test", { method: "POST" }),
+      environment(),
+    );
+    const response = await settleWithFakeTimers(pendingResponse);
+
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      error: {
+        details: {
+          code: "rate_limited",
+          stage: "clients",
+          phase: "response",
+          upstreamStatus: 429,
+        },
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(JSON.stringify(body)).not.toContain(privateBody);
+    expect(JSON.stringify(body)).not.toContain(API_KEY);
+  });
+
   it.each([
     [401, 502, "authentication_failed"],
     [403, 502, "authentication_failed"],
-    [429, 503, "rate_limited"],
   ] as const)(
     "reports upstream HTTP %i with a safe response-stage classification",
     async (upstreamStatus, responseStatus, code) => {

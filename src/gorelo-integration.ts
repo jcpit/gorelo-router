@@ -43,7 +43,10 @@ const MAX_CLIENT_IMPORT_PAGES = 100;
 const MAX_PAGED_CATALOG_ITEMS = 5_000;
 const MAX_PAGED_CATALOG_PAGES = 100;
 const GORELO_CATALOG_PAGE_SIZE = 200;
-export const GORELO_SETUP_PROBE_TIMEOUT_MS = 3_000;
+export const GORELO_SETUP_PROBE_TIMEOUT_MS = 2_250;
+export const GORELO_SETUP_PROBE_INTERVAL_MS = 300;
+export const GORELO_SETUP_DEFAULT_RATE_LIMIT_WAIT_MS = 1_000;
+export const GORELO_SETUP_MAX_RATE_LIMIT_WAIT_MS = 2_000;
 
 export interface GoreloCatalogSnapshot {
   kind: GoreloCatalogKind;
@@ -489,36 +492,21 @@ export async function testGoreloConnection(
 ): Promise<GoreloConnectionTestResult> {
   const client = integrationClient(env, config, GORELO_SETUP_PROBE_TIMEOUT_MS);
   const catalogCounts: Record<string, number> = {};
-  for (const kind of SETUP_CATALOG_KINDS) {
+  let rateLimitRetryAvailable = true;
+  for (const [index, kind] of SETUP_CATALOG_KINDS.entries()) {
+    if (index > 0) await wait(GORELO_SETUP_PROBE_INTERVAL_MS);
     try {
-      switch (kind) {
-        case "clients":
-          catalogCounts[kind] = (
-            await client.listClients({ pageSize: 1 })
-          ).totalCount;
-          break;
-        case "agent-assets":
-          catalogCounts[kind] = (
-            await client.listAgentAssets({ pageSize: 1 })
-          ).totalCount;
-          break;
-        case "users":
-          catalogCounts[kind] = (
-            await client.listUsers({ pageSize: 1 })
-          ).totalCount;
-          break;
-        case "groups":
-          catalogCounts[kind] = (await client.listGroups()).length;
-          break;
-        case "ticket-statuses":
-          catalogCounts[kind] = (await client.listTicketStatuses()).length;
-          break;
-        case "ticket-tags":
-          catalogCounts[kind] = (await client.listTicketTags()).length;
-          break;
-        case "ticket-types":
-          catalogCounts[kind] = (await client.listTicketTypes()).length;
-          break;
+      try {
+        catalogCounts[kind] = await setupCatalogCount(client, kind);
+      } catch (error) {
+        const retryDelay = setupRateLimitRetryDelay(
+          error,
+          rateLimitRetryAvailable,
+        );
+        if (retryDelay === undefined) throw error;
+        rateLimitRetryAvailable = false;
+        if (retryDelay > 0) await wait(retryDelay);
+        catalogCounts[kind] = await setupCatalogCount(client, kind);
       }
     } catch (error) {
       throw mapGoreloError(error, kind);
@@ -530,6 +518,47 @@ export async function testGoreloConnection(
     baseUrl: client.baseUrl,
     catalogCounts,
   };
+}
+
+async function setupCatalogCount(
+  client: GoreloClient,
+  kind: (typeof SETUP_CATALOG_KINDS)[number],
+): Promise<number> {
+  switch (kind) {
+    case "clients":
+      return (await client.listClients({ pageSize: 1 })).totalCount;
+    case "agent-assets":
+      return (await client.listAgentAssets({ pageSize: 1 })).totalCount;
+    case "users":
+      return (await client.listUsers({ pageSize: 1 })).totalCount;
+    case "groups":
+      return (await client.listGroups()).length;
+    case "ticket-statuses":
+      return (await client.listTicketStatuses()).length;
+    case "ticket-tags":
+      return (await client.listTicketTags()).length;
+    case "ticket-types":
+      return (await client.listTicketTypes()).length;
+  }
+}
+
+function setupRateLimitRetryDelay(
+  error: unknown,
+  retryAvailable: boolean,
+): number | undefined {
+  if (
+    !retryAvailable ||
+    !(error instanceof GoreloClientError) ||
+    error.status !== 429
+  ) {
+    return undefined;
+  }
+  const delay = error.retryAfterMs ?? GORELO_SETUP_DEFAULT_RATE_LIMIT_WAIT_MS;
+  return delay <= GORELO_SETUP_MAX_RATE_LIMIT_WAIT_MS ? delay : undefined;
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 export async function fetchAllGoreloClients(

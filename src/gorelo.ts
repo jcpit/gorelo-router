@@ -225,6 +225,7 @@ export class GoreloClientError extends Error {
     message: string,
     readonly status?: number,
     readonly diagnostic?: GoreloClientDiagnostic,
+    readonly retryAfterMs?: number,
   ) {
     super(message);
   }
@@ -239,6 +240,7 @@ const MAX_MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 const MAX_PAGE_SIZE = 200;
 const MAX_DIRECT_CATALOG_ITEMS = 5_000;
 const MAX_CURSOR_LENGTH = 2_048;
+const MAX_CAPTURED_RETRY_AFTER_MS = 60_000;
 
 const safeIdSchema = z
   .number()
@@ -747,12 +749,17 @@ class SecureGoreloClient implements GoreloClient {
     }
 
     if (!response.ok) {
+      const retryAfterMs =
+        response.status === 429
+          ? parseRetryAfter(response.headers.get("retry-after"))
+          : undefined;
       await response.body?.cancel().catch(() => undefined);
       throw new GoreloClientError(
         "http_error",
         `Gorelo API request failed with status ${response.status}`,
         response.status,
         { phase: "response" },
+        retryAfterMs,
       );
     }
 
@@ -763,6 +770,23 @@ class SecureGoreloClient implements GoreloClient {
       throw networkFailure(error, "response");
     }
   }
+}
+
+function parseRetryAfter(value: string | null): number | undefined {
+  if (value === null) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 128) return undefined;
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    if (!Number.isFinite(seconds)) return MAX_CAPTURED_RETRY_AFTER_MS;
+    return Math.min(seconds * 1_000, MAX_CAPTURED_RETRY_AFTER_MS);
+  }
+  const timestamp = Date.parse(trimmed);
+  if (!Number.isFinite(timestamp)) return undefined;
+  return Math.min(
+    Math.max(0, timestamp - Date.now()),
+    MAX_CAPTURED_RETRY_AFTER_MS,
+  );
 }
 
 function diagnosticCauseCode(error: unknown): string | undefined {

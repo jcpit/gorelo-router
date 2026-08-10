@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createGoreloClient,
   GoreloClientError,
@@ -36,6 +36,8 @@ function client(fetchImplementation: GoreloFetch, maxResponseBytes?: number) {
     ...(maxResponseBytes === undefined ? {} : { maxResponseBytes }),
   });
 }
+
+afterEach(() => vi.useRealTimers());
 
 describe("Gorelo base URL security", () => {
   it("accepts only the two exact regional API origins and removes one trailing slash", () => {
@@ -531,6 +533,73 @@ describe("Gorelo response safety", () => {
     });
     expect(String(thrown)).not.toContain(responseBody);
     expect(String(thrown)).not.toContain(API_KEY);
+  });
+
+  it.each([
+    ["2", 2_000],
+    ["999999999999999999999", 60_000],
+    [`invalid-${API_KEY}`, undefined],
+  ])(
+    "parses Retry-After safely without retaining its raw value: %s",
+    async (retryAfter, expectedDelay) => {
+      let thrown: unknown;
+      try {
+        await client(async () =>
+          json(
+            { privateBody: API_KEY },
+            { status: 429, headers: { "Retry-After": retryAfter } },
+          ),
+        ).listGroups();
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toMatchObject({
+        code: "http_error",
+        status: 429,
+        retryAfterMs: expectedDelay,
+      });
+      expect(String(thrown)).not.toContain(API_KEY);
+    },
+  );
+
+  it("accepts an HTTP-date Retry-After value", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-10T00:00:00.000Z"));
+
+    await expect(
+      client(
+        async () =>
+          new Response(null, {
+            status: 429,
+            headers: { "Retry-After": "Mon, 10 Aug 2026 00:00:02 GMT" },
+          }),
+      ).listGroups(),
+    ).rejects.toMatchObject({
+      code: "http_error",
+      status: 429,
+      retryAfterMs: 2_000,
+    });
+  });
+
+  it("does not automatically replay a rate-limited ticket creation", async () => {
+    const fetchMock = vi.fn<GoreloFetch>(
+      async () =>
+        new Response(null, {
+          status: 429,
+          headers: { "Retry-After": "0" },
+        }),
+    );
+
+    await expect(
+      client(fetchMock).createTicket({
+        Title: "Do not replay",
+        StatusId: 1,
+        GroupId: 2,
+        TypeId: 3,
+      }),
+    ).rejects.toMatchObject({ code: "http_error", status: 429 });
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("blocks redirects without disclosing their Location", async () => {
