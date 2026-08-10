@@ -1,0 +1,18 @@
+From: Monitoring Vendor <alerts@vendor.example>
+To: support@alerts.example.net
+Subject: =?UTF-8?Q?Server_=E2=80=93_Disk_Alert?=
+Message-ID: <alert-123@vendor.example>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mail-parser-test"
+
+--mail-parser-test
+Content-Type: text/plain; charset="utf-8"
+
+Disk usage has exceeded 95 percent on SERVER-01.
+--mail-parser-test
+Content-Type: text/plain; name="diagnostics.txt"
+Content-Disposition: attachment; filename="diagnostics.txt"
+Content-Transfer-Encoding: base64
+
+ZGlhZ25vc3RpY3M=
+--mail-parser-test--

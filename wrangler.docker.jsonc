@@ -1,0 +1,59 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gorelo-router",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-08",
+  "observability": {
+    "enabled": true,
+  },
+  "rules": [
+    {
+      "type": "Text",
+      "globs": ["**/*.css"],
+      "fallthrough": true,
+    },
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mail-parser",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MESSAGE_ARCHIVE",
+      "bucket_name": "mail-parser-quarantine",
+    },
+  ],
+  "send_email": [
+    {
+      "name": "RELEASE_EMAIL",
+      "allowed_destination_addresses": [
+        "replace-with-your-gorelo-forwarding-address@example.com",
+      ],
+      "allowed_sender_addresses": ["replace-with-release-sender@example.com"],
+    },
+  ],
+  "vars": {
+    "DEFAULT_GORELO_ADDRESS": "replace-with-your-gorelo-forwarding-address@example.com",
+    "ALLOWED_FORWARD_DESTINATIONS": "replace-with-your-gorelo-forwarding-address@example.com",
+    "RELEASE_FROM_ADDRESS": "replace-with-release-sender@example.com",
+    "QUARANTINE_MODE": "internal",
+    "ARCHIVE_MODE": "quarantine",
+    "SPAM_THRESHOLD": "5",
+    "SPAM_ACTION": "forward",
+    "MAX_PARSE_BYTES": "10485760",
+    "MAX_BODY_CHARACTERS": "200000",
+    "MAX_HTML_SCAN_CHARACTERS": "500000",
+    "EVENT_RETENTION_DAYS": "30",
+    "GORELO_API_BASE_URL": "https://api.aue.gorelo.io",
+    "GORELO_CATALOG_CACHE_SECONDS": "300",
+    "ALLOWED_WEBHOOK_HOSTS": "",
+    "WEBHOOK_TIMEOUT_MS": "8000",
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *", "17 3 * * *"],
+  },
+}

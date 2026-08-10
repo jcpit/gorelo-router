@@ -1,0 +1,38 @@
+{
+  "name": "gorelo-router",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "check": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "security:public": "node scripts/verify-public-tree.mjs",
+    "config:deploy:check": "node scripts/validate-deploy-config.mjs",
+    "config:secrets:check": "node scripts/validate-deploy-secrets.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "wrangler dev",
+    "predeploy": "npm run config:deploy:check && npm run config:secrets:check",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply mail-parser --local",
+    "db:migrate:remote": "wrangler d1 migrations apply mail-parser --remote"
+  },
+  "dependencies": {
+    "@tabler/core": "1.4.0",
+    "postal-mime": "2.7.6",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260808.1",
+    "@types/node": "26.2.0",
+    "prettier": "3.9.6",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10",
+    "wrangler": "4.120.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

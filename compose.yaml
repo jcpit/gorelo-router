@@ -1,0 +1,115 @@
+name: gorelo-router
+
+services:
+  gorelo-router:
+    image: gorelo-router:local
+    build:
+      context: .
+      target: development
+    init: true
+    ports:
+      - "127.0.0.1:${MAIL_PARSER_PORT:-8787}:8787"
+    volumes:
+      - gorelo-router-data:/data
+      - type: bind
+        source: ./.dev.vars
+        target: /app/.dev.vars
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./src
+        target: /app/src
+        read_only: true
+      - type: bind
+        source: ./migrations
+        target: /app/migrations
+        read_only: true
+      - type: bind
+        source: ./wrangler.jsonc
+        target: /app/wrangler.jsonc
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./wrangler.docker.jsonc
+        target: /app/wrangler.docker.jsonc
+        read_only: true
+        bind:
+          create_host_path: false
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 10s
+
+  cloudflare:
+    image: gorelo-router:cloudflare
+    build:
+      context: .
+      target: tooling
+    profiles:
+      - tools
+    init: true
+    stdin_open: true
+    tty: true
+    volumes:
+      - gorelo-router-cloudflare-auth:/home/node/.config/.wrangler
+      - type: bind
+        source: ./wrangler.production.jsonc
+        target: /app/wrangler.jsonc
+        read_only: true
+        bind:
+          create_host_path: false
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  public-check:
+    image: gorelo-router:public-check
+    build:
+      context: .
+      target: public-check
+    profiles:
+      - tools
+    init: true
+    read_only: true
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace
+        read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  deploy:
+    image: gorelo-router:deployment
+    build:
+      context: .
+      target: deployment
+    profiles:
+      - tools
+    init: true
+    stdin_open: true
+    tty: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,mode=1777
+    volumes:
+      - gorelo-router-cloudflare-auth:/home/node/.config/.wrangler
+      - type: bind
+        source: ./wrangler.production.jsonc
+        target: /app/wrangler.jsonc
+        read_only: true
+        bind:
+          create_host_path: false
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  gorelo-router-data:
+  gorelo-router-cloudflare-auth:

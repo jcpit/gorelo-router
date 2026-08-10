@@ -1,0 +1,20 @@
+# Generate a long value, for example: openssl rand -base64 48
+ADMIN_API_TOKEN=replace-with-a-long-random-token
+
+# Optional: enables Gorelo client import/catalogs and API-only ticket/alert actions.
+# Direct actions also require the private MESSAGE_ARCHIVE binding, an imported
+# current client directory, and a scoped key with the required read/write access.
+# A real key makes real reads during Test/import/catalog loading and stores returned
+# tenant metadata in local D1. A matching local email can create a real record;
+# saving a rule and Dry run never call the create endpoints.
+# In production, set this with:
+# docker compose run --rm cloudflare secret put GORELO_API_KEY
+# GORELO_API_KEY=replace-with-a-scoped-gorelo-api-key
+
+# Optional: enables signed outbound webhook actions for exact allow-listed hosts.
+# ALLOWED_WEBHOOK_HOSTS is a normal Worker variable in wrangler.production.jsonc.
+# A matching local email performs a real HTTPS POST, and the local scheduled
+# handler can retry eligible failures. Do not use a production receiver locally.
+# In production, set the signing key with:
+# docker compose run --rm cloudflare secret put WEBHOOK_SIGNING_SECRET
+# WEBHOOK_SIGNING_SECRET=replace-with-at-least-32-random-characters

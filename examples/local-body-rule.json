@@ -1,0 +1,18 @@
+{
+  "name": "Local MIME parsing check",
+  "description": "Matches the multipart test fixture body",
+  "priority": 5,
+  "enabled": true,
+  "match": "all",
+  "conditions": [
+    {
+      "field": "body_text",
+      "operator": "contains",
+      "value": "exceeded 95 percent",
+      "caseSensitive": false
+    }
+  ],
+  "action": {
+    "type": "forward"
+  }
+}
