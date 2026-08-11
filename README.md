@@ -27,7 +27,9 @@ It includes:
   extraction, including a short-lived opt-in capture for the next matching
   message, with centrally registered HTTPS webhook destinations and HMAC
   signatures;
-- opt-in native Gorelo ticket and alert creation from extracted values, fixed or alias-resolved clients, and current Gorelo catalogs;
+- opt-in native Gorelo ticket and alert creation from extracted values, fixed or
+  alias-resolved clients, and exact dynamic ticket associations for contacts,
+  technicians, and agent assets from current Gorelo catalogs;
 - a durable outbound-delivery ledger with immutable attempt history, bounded webhook retries, and manual review for uncertain Gorelo creates;
 - unit and integration-style Worker tests, plus documented local D1 verification.
 
@@ -77,6 +79,23 @@ the audit event and pending webhook snapshot; it sends the webhook only after
 Cloudflare accepts the primary forward.
 
 Use `create_ticket` or `create_alert` only when the extra field-level control is worth giving up the native mail representation. These API-only primary actions call Gorelo's documented `POST /v1/tickets` or `POST /v1/alerts/` endpoint and send the official PascalCase request fields instead of forwarding the inbound message. The Worker requires `MESSAGE_ARCHIVE`, retains the original RFC 5322 message privately, and records the request and attempt in the delivery audit. A definitive preflight/API failure may still use the explicitly configured failure route; an uncertain provider outcome never does. Gorelo authenticates API requests with a scoped `X-API-Key` at the selected regional endpoint; see the official [API overview and regional Swagger links](https://help.gorelo.io/api-overview).
+
+A ticket can keep fixed contact, lead-assignee, and agent-asset IDs or resolve
+each one from an extracted field. The client is always resolved first. Contacts
+and agent assets must then match exactly inside that client; a lead technician
+must match exactly in Gorelo's global organisation-user catalog. Missing,
+ambiguous, stale, cross-client, incomplete-catalog, and upstream lookup outcomes
+fail closed rather than guessing. Dry run and Audit show the exact entity and
+ID selected. Alerts remain different: Gorelo's alert endpoint accepts a text
+`Resource`, but it cannot attach contact or agent-asset IDs.
+
+The required catalogs are cached in D1 for
+`GORELO_CATALOG_CACHE_SECONDS`. Contact snapshots are fetched only for the
+already resolved client; organisation users and agent assets use bounded global
+snapshots. A fresh complete snapshot is reused, while refresh or expiry performs
+a bounded live Gorelo read. The Router fails explicitly when a snapshot is
+expired, incomplete, oversized, or cannot be cached safely, and it does not let
+an older concurrent refresh overwrite newer catalog data.
 
 `QUARANTINE_MODE` controls what a quarantine decision means:
 
@@ -463,7 +482,9 @@ docker build --target test --tag gorelo-router:test .
 - **Rules** provides a guided rule builder, JSON mode, templates,
   enable/disable controls, deletion, named Gorelo mailbox selectors, a **Teach
   from sample** workflow, forward-plus-webhook mapping, and API-only Gorelo
-  ticket/alert mapping. Extraction uses literal delimiters—never user regular
+  ticket/alert mapping. A ticket association can be fixed or resolved exactly
+  from a learned variable by email, alias, name, ID, or device serial number,
+  as appropriate. Extraction uses literal delimiters—never user regular
   expressions or executable templates. Structured selectors come from current
   Gorelo catalogs; custom-asset and uptime IDs are rejected until they can be
   selected from a trustworthy catalog.
@@ -471,12 +492,14 @@ docker build --target test --tag gorelo-router:test .
 - **Audit** expands each recent processing record into the decision reason,
   spam threshold/reasons, matched rule, resolved mailbox, sanitized headers,
   safe text preview, attachment metadata, processing trace, mapped variables,
-  resolved Gorelo client, provider ID when returned, immutable delivery
-  attempts, and an authenticated EML download when the original was retained.
+  resolved Gorelo client/contact/technician/agent asset and their exact IDs,
+  provider ID when returned, immutable delivery attempts, and an authenticated
+  EML download when the original was retained.
   An operator can create a disabled parser-rule draft directly from a message.
   “Forwarded” means Cloudflare accepted a forward or Gorelo confirmed an API
   create; inspect the action type for the exact meaning.
-- **Dry run** evaluates supplied facts against current policy without sending or storing a message.
+- **Dry run** evaluates supplied facts against current policy, including exact
+  dynamic Gorelo association resolution, without sending or storing a message.
 - **Setup** manages the named Gorelo mailbox registry and its one persistent
   default; shows non-secret, enabled-rule-aware readiness; tests the selected
   Gorelo region; imports/searches clients; batch-adds and groups any number of
@@ -505,11 +528,11 @@ it does not share or claim identical parsing internals.
 
 At runtime, each learned name becomes a bounded string in the rule's extracted variable map:
 
-| Rule action       | Where `{{variable}}` is used                                                                                                                        |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `forward_webhook` | Sent as `data.variables.variable` in the signed webhook envelope; the original email is still forwarded first.                                      |
-| `create_ticket`   | Substituted into the title, description, or created-by templates; one variable may also resolve the exact Gorelo client through configured aliases. |
-| `create_alert`    | Substituted into the alert name, resource, or description; one variable may likewise resolve the exact Gorelo client.                               |
+| Rule action       | Where `{{variable}}` is used                                                                                                                                            |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `forward_webhook` | Sent as `data.variables.variable` in the signed webhook envelope; the original email is still forwarded first.                                                          |
+| `create_ticket`   | Substituted into templates; variables may also resolve the exact Gorelo client, contact, lead technician, and agent asset through the action's explicit resolver modes. |
+| `create_alert`    | Substituted into the alert name, resource, or description; one variable may likewise resolve the exact Gorelo client.                                                   |
 
 When an Audit record has a usable body, the trainer receives normalized plain
 text only. It never renders or exposes HTML, attachments, or the raw RFC 5322
@@ -645,6 +668,12 @@ The live Email Worker API does not expose a synchronous Cloudflare `isSpam` fact
 
 The safe default `SPAM_ACTION=forward` is observation-only. With a non-forward spam action, matching forward, webhook, ticket, and alert rules still go through global spam policy; only a rule with `"bypassSpam": true` bypasses it. Use that explicit override sparingly and only with independently trusted signals.
 
+Extracted customer, contact, technician, and device values are email content,
+not authenticated assertions. Exact catalog matching prevents guessing and
+cross-client assignment; it does not prove who sent the value. Restrict dynamic
+resolution to a dedicated parser recipient with independent upstream sender
+authentication.
+
 This is a routing layer, not antivirus or a full phishing engine. Attachment conditions inspect filenames only, and content matching uses bounded/truncated text. Use Gorelo's [Spam view](https://help.gorelo.io/filter-spam) and a dedicated mail-security product where malware, credential phishing, BEC, or URL reputation detection is required.
 
 Webhook URLs are operator-registered server resources, not values extracted from messages or supplied by rules. Only exact allow-listed HTTPS hosts are accepted. Every request carries a timestamp, event ID, stable idempotency key, and `X-Mail-Parser-Signature: v1=<hex>` over `timestamp + "." + exact request body` using HMAC-SHA256. Receivers should reject stale timestamps, verify the signature over the untouched bytes, and deduplicate the delivery ID. A delivery is also bound to the selected destination version and a SHA-256 digest of its canonical endpoint; editing or deleting that destination moves queued work to manual review instead of redirecting retained client data.
@@ -678,7 +707,7 @@ primary 60-minute retention control.
 
 For webhook actions, D1 additionally stores the destination ID (not URL), destination version and endpoint digest, event type, mapped variables, optional resolved client descriptor, payload digest, state/version, safe error category, and immutable attempt timestamps/statuses. It never stores the signing secret or request authentication headers. Mapped variables can still contain client data, so the same retention and access controls apply.
 
-For API-only Gorelo actions, D1 stores a bounded credential-free snapshot of the extracted variables, resolved client, regional target, and exact structured request, plus its digest, state/version, provider ticket ID when Gorelo returns one, and immutable attempts. Gorelo's alert response confirms success without returning an alert ID. The request uses Gorelo's PascalCase fields such as `Title`, `ClientId`, `StatusId`, `GroupId`, and `TypeId` for tickets, or `Name`, `ClientId`, `Resource`, and `Severity` for alerts. It never stores `GORELO_API_KEY` or request headers.
+For API-only Gorelo actions, D1 stores a bounded credential-free snapshot of the extracted variables, resolved client and ticket associations, regional target, and exact structured request, plus its digest, state/version, provider ticket ID when Gorelo returns one, and immutable attempts. Gorelo's alert response confirms success without returning an alert ID. The request uses Gorelo's PascalCase fields such as `Title`, `ClientId`, `StatusId`, `GroupId`, and `TypeId` for tickets, or `Name`, `ClientId`, `Resource`, and `Severity` for alerts. It never stores `GORELO_API_KEY` or request headers.
 
 The daily audit cron first deletes every expired `messages/` R2 object, clears
 its private archive reference, and only then deletes the D1 event; quarantine
@@ -707,6 +736,13 @@ secondary safeguards and align audit retention with client agreements.
   failure path applies; a stale claim is later recovered or expired by the
   five-minute maintenance job.
 - Each client can have multiple global and source-scoped aliases. Batch creation is all-or-none, and alias edits/deletes require the current version. Client matching remains deterministic: scoped alias, global alias, then exact non-stale catalog identity. A stale exact alias is terminal and never falls through to another customer. New aliases that equal another current client's exact catalog identity are rejected; if a later import creates that collision, resolution becomes ambiguous and fails closed.
+- Dynamic ticket associations run only after the client is fixed or resolved.
+  Contacts and agent assets are constrained to that client; lead technicians
+  come from the global organisation-user catalog. Fixed IDs remain supported.
+  Every dynamic value uses the configured exact field and match mode—never a
+  fuzzy or first-result fallback. Entity location IDs are applied only when
+  they agree with an explicit location or produce one unambiguous derived
+  location; conflicts fail closed.
 - Required extraction or webhook failure never rolls back a completed primary email forward. Explicit HTTP `429`/5xx responses are retryable with the same delivery ID for at most five total automatic attempts. Network errors and timeouts are `uncertain` and are not automatically replayed because the receiver may already have accepted the request; abandoned in-flight claims older than ten minutes and destination-version drift follow the same manual-review boundary.
 - A Gorelo ticket/alert action is API-only on its primary path. Preflight failures and definitive 4xx responses, including `429`, are terminal rather than replayed; the Worker then uses the explicit failure destination or rejects when none is configured. Gorelo's create endpoints do not advertise an idempotency key, so 5xx, network, timeout, invalid-response, oversized-response, and abandoned-claim outcomes are `uncertain`; they are never automatically replayed or converted into a fallback forward. Investigate Gorelo and the audit before taking any manual action.
 - Platform-enforced CPU or memory termination can stop the Worker outside JavaScript error handling, so the fallback cannot be guaranteed for hard runtime termination. Size guards and production limits still matter.

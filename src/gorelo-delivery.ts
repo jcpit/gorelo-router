@@ -29,6 +29,7 @@ export const STALE_GORELO_CLAIM_AGE_MS = 10 * 60_000;
 const SAFE_ERRORS = Object.freeze({
   extraction: "Gorelo field extraction failed",
   clientResolution: "Gorelo client identity resolution failed",
+  entityResolution: "Gorelo ticket association resolution failed",
   mapping: "Gorelo request mapping failed",
   preflight: "Gorelo action preparation failed",
   notConfigured: "Gorelo API delivery is not configured",
@@ -142,6 +143,8 @@ function safePreflightError(value: string): string {
       return SAFE_ERRORS.extraction;
     case "client_resolution_failed":
       return SAFE_ERRORS.clientResolution;
+    case "entity_resolution_failed":
+      return SAFE_ERRORS.entityResolution;
     case "mapping_failed":
       return SAFE_ERRORS.mapping;
     default:

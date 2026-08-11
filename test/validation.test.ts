@@ -392,6 +392,103 @@ describe("rule validation", () => {
     ).toBe(false);
   });
 
+  it("accepts dynamic ticket entity resolvers for fixed or dynamic clients", () => {
+    const resolverFields = [
+      { key: "summary", source: "subject" },
+      { key: "customer", source: "literal", value: "Acme" },
+      { key: "contact", source: "literal", value: "user@example.com" },
+      { key: "technician", source: "literal", value: "tech@example.com" },
+      { key: "device", source: "literal", value: "server-01" },
+    ];
+    const resolverAction = {
+      type: "create_ticket",
+      fields: resolverFields,
+      titleTemplate: "{{summary}}",
+      statusId: 1,
+      groupId: 2,
+      typeId: 3,
+      contactResolver: { field: "contact", matchBy: "email" },
+      leadAssigneeResolver: { field: "technician", matchBy: "name" },
+      agentAssetResolver: { field: "device", matchBy: "serial_number" },
+    };
+    const parse = (client: Record<string, unknown>) =>
+      ruleInputSchema.safeParse({
+        name: "Dynamic associations",
+        conditions: [{ field: "to", operator: "contains", value: "@" }],
+        action: { ...resolverAction, ...client },
+      });
+
+    expect(parse({ clientId: 42 }).success).toBe(true);
+    expect(parse({ clientIdentityField: "customer" }).success).toBe(true);
+  });
+
+  it("requires resolver fields to exist and each resolver to replace its fixed association", () => {
+    const base = {
+      type: "create_ticket",
+      fields: [
+        { key: "summary", source: "subject" },
+        { key: "entity", source: "literal", value: "one" },
+      ],
+      clientId: 42,
+      titleTemplate: "{{summary}}",
+      statusId: 1,
+      groupId: 2,
+      typeId: 3,
+    };
+    const parse = (extra: Record<string, unknown>) =>
+      ruleInputSchema.safeParse({
+        name: "Resolver validation",
+        conditions: [{ field: "to", operator: "contains", value: "@" }],
+        action: { ...base, ...extra },
+      });
+
+    expect(
+      parse({ contactResolver: { field: "missing", matchBy: "email" } })
+        .success,
+    ).toBe(false);
+    expect(
+      parse({
+        contactId: 10,
+        contactResolver: { field: "entity", matchBy: "id" },
+      }).success,
+    ).toBe(false);
+    expect(
+      parse({
+        leadAssigneeId: 11,
+        leadAssigneeResolver: { field: "entity", matchBy: "name" },
+      }).success,
+    ).toBe(false);
+    expect(
+      parse({
+        agentAssetIds: [canonicalGoreloGuid],
+        agentAssetResolver: { field: "entity", matchBy: "name" },
+      }).success,
+    ).toBe(false);
+    expect(
+      parse({ contactResolver: { field: "entity", matchBy: "fuzzy" } }).success,
+    ).toBe(false);
+  });
+
+  it("keeps entity resolvers exclusive to create-ticket actions", () => {
+    expect(
+      ruleInputSchema.safeParse({
+        name: "Invalid alert resolver",
+        conditions: [{ field: "to", operator: "contains", value: "@" }],
+        action: {
+          type: "create_alert",
+          fields: [
+            { key: "name", source: "subject" },
+            { key: "contact", source: "literal", value: "user@example.com" },
+          ],
+          clientId: 42,
+          nameTemplate: "{{name}}",
+          resourceTemplate: "mail",
+          contactResolver: { field: "contact", matchBy: "email" },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   it("accepts canonical Gorelo Guid asset IDs while rejecting malformed values", () => {
     const parseAssetId = (assetId: string) =>
       ruleInputSchema.safeParse({

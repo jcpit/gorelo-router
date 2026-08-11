@@ -203,9 +203,11 @@ independently verified as a Cloudflare Email Routing destination.
 
 ### 4.2 Create an API key only if needed
 
-Client import, Gorelo catalog selectors, and API-only actions require a scoped
-Gorelo key. Give it read access only to the catalogs you use and the appropriate
-ticket or alert write access only when those actions are enabled. The optional
+Client import, Gorelo catalog selectors, dynamic ticket associations, and
+API-only actions require a scoped Gorelo key. Give it read access only to the
+catalogs you use—including contacts, organisation users, and agent assets when
+their dynamic resolvers are enabled—and the appropriate ticket or alert write
+access only when those actions are enabled. The optional
 **Test connection** diagnostic is intentionally broad: it reads clients, agent
 assets, users, groups, ticket statuses, ticket tags, and ticket types. A narrowly
 scoped key can skip that diagnostic and verify only its intended import,
@@ -729,7 +731,8 @@ The preferred path begins with a real retained message:
 6. Confirm the inferred literal markers extract exactly the highlighted value.
 7. Repeat for other values, then apply the variables.
 8. Insert the resulting `{{field_key}}` placeholders into a Gorelo template, or
-   map the variables into the webhook action.
+   map the variables into the webhook action. A ticket can also use a variable
+   as an exact contact, lead-technician, or agent-asset resolver.
 9. Dry-run several representative messages before saving or enabling the rule.
 
 You can still start in Rules and use **Teach from sample** with pasted content
@@ -809,6 +812,56 @@ after every import.
 An exact alias is routing data, not authentication. Use dynamic client mapping
 only on a dedicated parser recipient with an independently trusted upstream
 source.
+
+### 14.1 Resolve ticket contacts, technicians, and devices dynamically
+
+A `create_ticket` rule can keep its existing fixed catalog selections or
+resolve the primary contact, lead technician, and one agent asset from learned
+email fields. This does not change D1 schema and requires no migration.
+
+1. Import clients and confirm the rule's fixed or alias-resolved client first.
+2. In **Rules**, add required extraction fields for the values supplied by the
+   source, such as `contact_email`, `technician_email`, or `device_serial`.
+3. In the ticket association control, choose **From extracted field** and the
+   exact field and match mode:
+   - contact: email, alias, name, or ID;
+   - lead technician: email, name, or ID;
+   - agent asset: Gorelo ID, serial number, or name.
+4. Use **Refresh catalogs** after relevant global or fixed-client Gorelo records
+   change, then Dry-run representative messages. A dynamic client's contacts
+   are loaded only after that client resolves and refresh on cache expiry.
+   Confirm the displayed entity labels, Gorelo IDs, client relationship, and any
+   derived location before enabling the rule.
+
+The Worker resolves the client before every dynamic association. Contacts and
+agent assets must be exact matches belonging to that client; lead technicians
+are exact matches in the global organisation-user catalog. Comparison is
+normalized for surrounding whitespace, Unicode, and case, but is never fuzzy.
+Zero matches, multiple distinct matches, cross-client entities, expired
+catalogs that cannot be refreshed, malformed/incomplete catalog responses, and
+missing extracted values fail closed before ticket creation.
+
+Fixed `contactId`, `leadAssigneeId`, and `agentAssetIds` remain supported. A
+resolver and its fixed counterpart cannot be configured together. A fixed
+`locationId` still requires a fixed client; any non-null location on a resolved
+contact or asset must agree with it. Without a fixed location, one distinct
+non-null resolved location is applied automatically, no locations leave it
+unset, and conflicting locations stop the action.
+
+Catalog snapshots are cached in D1 for `GORELO_CATALOG_CACHE_SECONDS`. Runtime
+resolution reuses a fresh complete snapshot; a manual refresh or expiration
+causes a bounded live Gorelo read. Contact snapshots are scoped to the resolved
+client and are never warmed tenant-wide. Stale, incomplete, oversized, or
+uncacheable data is not used as a fallback, and an older concurrent refresh
+cannot replace a newer snapshot. Keep the cache long enough to avoid unnecessary
+Gorelo requests, and Dry-run again after the relevant cache expires when a
+dynamic client's contacts change.
+
+These resolver values come from email content. Exact catalog matching prevents
+guessing and cross-client assignment, but it does not authenticate the sender.
+Use a dedicated parser recipient with independent upstream authentication and
+narrow routing conditions. Gorelo alerts still support only a textual
+`Resource`; they cannot attach contact or agent-asset records.
 
 ## 15. Optional features
 

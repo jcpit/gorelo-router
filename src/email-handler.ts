@@ -8,6 +8,7 @@ import { loadConfig } from "./config";
 import { resolveClientIdentity } from "./client-directory";
 import { extractWebhookVariables, WebhookExtractionError } from "./extraction";
 import { prepareGoreloAction } from "./gorelo-action";
+import { getGoreloCatalog } from "./gorelo-integration";
 import {
   executeGoreloDelivery,
   GORELO_DELIVERY_SCHEMA_VERSION,
@@ -361,12 +362,17 @@ async function handleDirectGoreloAction(
   const goreloAction = decision.gorelo?.action;
   if (!goreloAction) throw new Error("Gorelo action decision is incomplete");
 
-  const prepared = await prepareGoreloAction(env.DB, facts, goreloAction);
+  const prepared = await prepareGoreloAction(env.DB, facts, goreloAction, {
+    loadCatalog: (kind, options) =>
+      getGoreloCatalog(env, config, kind, options),
+  });
   trace.push({
     stage: "Gorelo mapping",
     outcome: prepared.preflightError ? "error" : "success",
     detail: prepared.preflightError
-      ? "Structured field extraction or exact client resolution failed"
+      ? prepared.preflightError === "entity_resolution_failed"
+        ? "Exact Gorelo ticket association resolution failed"
+        : "Structured field extraction or exact client resolution failed"
       : `Prepared an API-only Gorelo ${prepared.actionType === "create_ticket" ? "ticket" : "alert"} request`,
     at: new Date().toISOString(),
   });

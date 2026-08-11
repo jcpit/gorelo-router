@@ -145,7 +145,11 @@ The extracted variable map is capped below the 64 KiB durable-delivery snapshot 
 
 `create_ticket` and `create_alert` reuse the same one-to-50 `fields` array and literal extraction rules. Their templates may contain fixed text and `{{field_key}}` placeholders. Every placeholder must reference a key declared by that action; missing braces, unknown keys, executable expressions, and control characters are rejected. `body_text` extraction still forces bounded MIME parsing.
 
-An extracted client identity is sender-controlled input even when it resolves exactly through an alias. Use dynamic client resolution only on a dedicated parser recipient whose source is independently authenticated upstream. The Worker requires a current imported directory and fails closed on missing, stale, or ambiguous aliases, but aliases do not authenticate the sender.
+Every extracted identity is sender-controlled input even when it resolves
+exactly through a Gorelo catalog. Use dynamic client or ticket-association
+resolution only on a dedicated parser recipient whose source is independently
+authenticated upstream. Envelope addresses and exact aliases are filters, not
+proof of sender identity.
 
 Every structured action must choose exactly one client strategy:
 
@@ -153,6 +157,37 @@ Every structured action must choose exactly one client strategy:
 - `clientIdentityField` names an extraction key. Its value resolves by the optional `clientAliasScope` first, then a global alias, then an exact current name, billing name, alternate name, or domain. The scope defaults to `global`.
 
 Setup is a one-to-many alias manager: each customer may have any number of global and source-scoped aliases. An operator can add up to 100 newline-separated aliases atomically, group and edit them with optimistic versions, and preview the exact result. A stale exact alias stops resolution without falling through. Aliases cannot equal another current client's exact catalog identity, and a later import that creates such a collision makes resolution ambiguous. Stale, missing, and ambiguous clients stop the API action without guessing.
+
+After the client resolves, a ticket can resolve three associations from its
+extracted field map:
+
+- `contactResolver: { field, matchBy }` sets the primary `ContactId`.
+  `matchBy` is `email`, `alias`, `name`, or `id`.
+- `leadAssigneeResolver: { field, matchBy }` sets `LeadAssigneeId`.
+  `matchBy` is `email`, `name`, or `id`.
+- `agentAssetResolver: { field, matchBy }` sets the single dynamic entry in
+  `AgentAssetIds`. `matchBy` is `id`, `serial_number`, or `name`; name checks
+  the catalog name and display name for the same asset.
+
+Each `field` must name an extraction key declared by the same action. Text is
+trimmed and compared with NFKC/case normalization, but matching remains exact:
+there is no substring, similarity, fuzzy, or first-result fallback. Contact and
+technician IDs are canonical positive decimal values; an agent-asset ID is its
+exact Gorelo GUID. Contact email, alias, and name modes compare the respective
+Gorelo catalog fields; agent-asset name mode compares both catalog name and
+display name while deduplicating one record exposed under both. Contacts and
+agent assets must belong to the already resolved client. Lead assignees resolve
+against the global organisation-user catalog. Zero matches, more than one
+distinct match, cross-client records, unavailable or invalid catalogs, and
+missing required values stop the action before Gorelo is called.
+
+Each resolver is mutually exclusive with its existing fixed equivalent:
+`contactId`, `leadAssigneeId`, or `agentAssetIds`. Those fixed properties remain
+fully supported for existing rules. If `locationId` is fixed, every non-null
+location on a dynamically resolved contact or asset must agree with it. Without
+a fixed location, the Worker gathers those non-null locations: exactly one
+distinct ID becomes `LocationId`, no IDs leave it unset, and conflicting IDs
+fail closed.
 
 Ticket rules map to Gorelo's official PascalCase request fields:
 
@@ -167,19 +202,22 @@ Ticket rules map to Gorelo's official PascalCase request fields:
 | `descriptionTemplate`       | `Description`                | Optional rendered value; at most 16,000 characters                      |
 | `priorityId`                | `PriorityId`                 | Optional integer 0–4                                                    |
 | `sourceId`                  | `SourceId`                   | Optional integer 1–6                                                    |
-| `locationId`                | `LocationId`                 | Optional; requires a fixed client                                       |
-| `contactId`, `ccContactIds` | `ContactId`, `CcContactIds`  | Optional; require a fixed client                                        |
-| assignee/watcher properties | corresponding user ID fields | Optional lead, assisting, and watcher IDs                               |
+| `locationId`                | `LocationId`                 | Optional fixed-client ID; dynamic contact/asset locations must agree    |
+| `contactId`, `ccContactIds` | `ContactId`, `CcContactIds`  | Optional fixed IDs; require a fixed client                              |
+| `contactResolver`           | `ContactId`                  | Optional exact dynamic primary contact after client resolution          |
+| assignee/watcher properties | corresponding user ID fields | Optional fixed lead, assisting, and watcher IDs                         |
+| `leadAssigneeResolver`      | `LeadAssigneeId`             | Optional exact dynamic global organisation user                         |
 | `tagIds`                    | `TagIds`                     | Optional ticket tag IDs                                                 |
-| `agentAssetIds`             | `AgentAssetIds`              | Optional agent UUIDs; requires a fixed client                           |
+| `agentAssetIds`             | `AgentAssetIds`              | Optional fixed agent GUIDs; require a fixed client                      |
+| `agentAssetResolver`        | `AgentAssetIds`              | Optional exact dynamic single asset inside the resolved client          |
 | `sendTicketCreatedEmail`    | `SendTicketCreatedEmail`     | Defaults to `false`                                                     |
 | `isUnread`                  | `IsUnread`                   | Defaults to `true`                                                      |
 
-ID arrays are unique and contain at most 100 values. The guided editor loads statuses, groups, types, users, tags, locations, contacts, and agent assets from current Gorelo catalogs. Custom-asset and uptime-monitor IDs are intentionally rejected because Gorelo does not currently expose safe catalog selectors for them.
+ID arrays are unique and contain at most 100 values. The guided editor loads statuses, groups, types, users, tags, locations, contacts, and agent assets from current Gorelo catalogs. Catalog snapshots are kept in D1 for `GORELO_CATALOG_CACHE_SECONDS`; selectors and runtime resolution reuse a fresh snapshot. Contacts are requested only for the already resolved client, while organisation users and agent assets use bounded global snapshots. A refresh or an expired entry performs a bounded, complete Gorelo read and replaces the cache only if it is not older than the current entry. Expired, malformed, incomplete, oversized, or uncacheable data is never used as a stale fallback, so an unavailable or ambiguous catalog stops a dynamic action safely. Custom-asset and uptime-monitor IDs are intentionally rejected because Gorelo does not currently expose safe catalog selectors for them.
 
-Alert rules send `Name`, `ClientId`, `Resource`, optional `Description`, and `Severity`. `nameTemplate` and `resourceTemplate` are required and render to 1–998 characters; `descriptionTemplate` is optional and limited to 16,000. `severity` defaults to `3` and accepts only 1 through 4. Gorelo currently documents 1 as Critical, 2 as Error, and 3 as Warning; its help does not name 4, so this project calls it only “Severity 4” rather than inventing a label. See Gorelo's [alert overview](https://help.gorelo.io/alerts-overview).
+Alert rules send `Name`, `ClientId`, `Resource`, optional `Description`, and `Severity`. `nameTemplate` and `resourceTemplate` are required and render to 1–998 characters; `descriptionTemplate` is optional and limited to 16,000. `severity` defaults to `3` and accepts only 1 through 4. Gorelo's alert contract has no contact, technician, or agent-asset association fields; a learned device value can populate textual `Resource`, but it cannot attach the Gorelo asset record. Gorelo currently documents 1 as Critical, 2 as Error, and 3 as Warning; its help does not name 4, so this project calls it only “Severity 4” rather than inventing a label. See Gorelo's [alert overview](https://help.gorelo.io/alerts-overview).
 
-The structured endpoints cannot receive raw MIME or attachments. The rule's primary action therefore does not forward the email; before the API call, the Worker retains the original RFC 5322 message in private `MESSAGE_ARCHIVE` and synchronously stores the event and credential-free delivery snapshot. Audit shows the extracted variables, resolved client, PascalCase request, immutable attempt, safe result, and returned ticket ID when available. Gorelo confirms an alert with a Boolean result and does not return an alert ID. Saving/editing a rule and Dry run prepare or validate mappings only; they never create a real ticket or alert.
+The structured endpoints cannot receive raw MIME or attachments. The rule's primary action therefore does not forward the email; before the API call, the Worker retains the original RFC 5322 message in private `MESSAGE_ARCHIVE` and synchronously stores the event and credential-free delivery snapshot. Audit shows the extracted variables, exact resolved client and ticket associations, their Gorelo IDs, the PascalCase request, immutable attempt, safe result, and returned ticket ID when available. Gorelo confirms an alert with a Boolean result and does not return an alert ID. Saving/editing validates resolver configuration and required catalog posture; Dry run with representative values performs exact client/entity resolution. Neither operation creates a real ticket or alert.
 
 Gorelo does not advertise an idempotency key for these create endpoints. Each delivery gets at most one provider attempt. Extraction/mapping failures and definitive 4xx responses are terminal `failed`; `429` is also terminal. These definitive failures use the configured failure destination or reject if none exists. A timeout, network error, 5xx, invalid/oversized response, or abandoned claim is `uncertain` because Gorelo might already have created the record. Neither failed nor uncertain structured actions are automatically replayed, and an uncertain action is never fallback-forwarded. Check Gorelo and the retained audit before taking manual action.
 
@@ -309,6 +347,95 @@ This fixed-client rule can safely use client-specific contact, location, and ass
 ```
 
 The rule editor fills these IDs from live/cached Gorelo selectors. Saving and Dry run do not call `POST /v1/tickets`; only a matching inbound email does.
+
+### Create a ticket with dynamic client, contact, technician, and device
+
+This example resolves the client first, then constrains the contact and device
+to that client while resolving the lead technician globally:
+
+```json
+{
+  "name": "Create mapped monitoring ticket",
+  "priority": 32,
+  "conditions": [
+    {
+      "field": "to_local_part",
+      "operator": "equals",
+      "value": "monitoring"
+    }
+  ],
+  "action": {
+    "type": "create_ticket",
+    "fields": [
+      {
+        "key": "customer",
+        "source": "body_text",
+        "startAfter": "Customer:",
+        "endBefore": "\n",
+        "required": true
+      },
+      {
+        "key": "contact_email",
+        "source": "body_text",
+        "startAfter": "Contact:",
+        "endBefore": "\n",
+        "required": true
+      },
+      {
+        "key": "technician_email",
+        "source": "body_text",
+        "startAfter": "Technician:",
+        "endBefore": "\n",
+        "required": true
+      },
+      {
+        "key": "device_serial",
+        "source": "body_text",
+        "startAfter": "Serial:",
+        "endBefore": "\n",
+        "required": true
+      },
+      { "key": "summary", "source": "subject", "required": true },
+      {
+        "key": "details",
+        "source": "body_text",
+        "startAfter": "Details:",
+        "maxCharacters": 4000,
+        "required": true
+      }
+    ],
+    "clientIdentityField": "customer",
+    "clientAliasScope": "monitoring-vendor",
+    "contactResolver": {
+      "field": "contact_email",
+      "matchBy": "email"
+    },
+    "leadAssigneeResolver": {
+      "field": "technician_email",
+      "matchBy": "email"
+    },
+    "agentAssetResolver": {
+      "field": "device_serial",
+      "matchBy": "serial_number"
+    },
+    "titleTemplate": "{{summary}}",
+    "descriptionTemplate": "{{details}}",
+    "statusId": 10,
+    "groupId": 20,
+    "typeId": 30,
+    "sendTicketCreatedEmail": false,
+    "isUnread": true
+  }
+}
+```
+
+No fixed `locationId` is needed when the dynamically resolved contact and agent
+asset expose the same non-null location: that one ID is derived automatically.
+If their locations conflict, the action stops. Use Dry run with representative
+values and confirm every resolved label, ID, client boundary, and derived
+location before enabling the rule. The parser recipient must accept messages
+only from an independently authenticated source; exact matching does not make
+email content trustworthy.
 
 ### Create an alert using a customer alias
 

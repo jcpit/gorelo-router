@@ -450,7 +450,15 @@ async function cacheCatalog(
   const payloadBytes = new TextEncoder().encode(
     JSON.stringify(snapshot),
   ).byteLength;
-  if (payloadBytes > MAX_GORELO_CATALOG_CACHE_BYTES) return;
+  if (payloadBytes > MAX_GORELO_CATALOG_CACHE_BYTES) {
+    throw new GoreloIntegrationError(
+      422,
+      "catalog_limit",
+      `Gorelo ${snapshot.kind} catalog exceeds the safe cache size limit`,
+      undefined,
+      { stage: snapshot.kind },
+    );
+  }
   const clientId = snapshot.clientId?.toString();
   await putGoreloCatalogCache(db, {
     key: goreloCatalogCacheKey(snapshot.kind, clientId),

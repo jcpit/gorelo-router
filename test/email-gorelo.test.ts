@@ -480,6 +480,211 @@ describe("email Gorelo API actions", () => {
     expect(rejected.status).toBe(400);
   });
 
+  it("requires client-scoped contacts when saving a fixed-client resolver rule", async () => {
+    const db = database();
+    const storage = archive();
+    await importGoreloClients(db, [
+      {
+        id: 42,
+        name: "Acme",
+        billingName: null,
+        alternateName: null,
+        status: "Active",
+        isDefault: false,
+        domains: ["acme.example"],
+      },
+    ]);
+    const requestedPaths: string[] = [];
+    const page = (data: readonly unknown[]) =>
+      Response.json({
+        data,
+        totalCount: data.length,
+        nextCursor: null,
+        previousCursor: null,
+        hasMore: false,
+        hasPrevious: false,
+      });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      requestedPaths.push(`${url.pathname}${url.search}`);
+      switch (url.pathname) {
+        case "/v1/tickets/statuses":
+          return Response.json([
+            { id: 10, name: "New", baseStatusId: 1, sortOrder: 0 },
+          ]);
+        case "/v1/organization/groups":
+          return Response.json([{ id: 20, name: "Service Desk" }]);
+        case "/v1/tickets/types":
+          return Response.json([{ id: 30, name: "Incident" }]);
+        case "/v1/contacts":
+          return page([
+            {
+              id: 101,
+              firstName: "Ada",
+              lastName: "Lovelace",
+              primaryEmail: "ada@example.com",
+              alias: "NOC user",
+              clientId: 42,
+              clientLocationId: 5,
+            },
+          ]);
+        case "/v1/organization/users":
+          return page([
+            {
+              id: 202,
+              firstName: "Grace",
+              lastName: "Hopper",
+              email: "tech@example.com",
+            },
+          ]);
+        case "/v1/assets/agents":
+          return page([
+            {
+              id: "ce7cb8a4-29d5-4b60-adba-fab15873446c",
+              name: "host-01",
+              displayName: "Server 01",
+              clientId: 42,
+              clientLocationId: 5,
+              serialNo: "SER-001",
+            },
+          ]);
+        default:
+          throw new Error(`Unexpected catalog ${String(input)}`);
+      }
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await handleFetch(
+      new Request("https://worker.example/api/v1/rules", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${ADMIN_TOKEN}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Dynamic entity ticket",
+          conditions: [
+            {
+              field: "from_domain",
+              operator: "equals",
+              value: "vendor.example",
+            },
+          ],
+          action: {
+            type: "create_ticket",
+            fields: [
+              { key: "summary", source: "subject" },
+              { key: "contact", source: "literal", value: "NOC user" },
+              {
+                key: "technician",
+                source: "literal",
+                value: "tech@example.com",
+              },
+              { key: "device", source: "literal", value: "host-01" },
+            ],
+            clientId: 42,
+            titleTemplate: "{{summary}}",
+            statusId: 10,
+            groupId: 20,
+            typeId: 30,
+            contactResolver: { field: "contact", matchBy: "alias" },
+            leadAssigneeResolver: {
+              field: "technician",
+              matchBy: "email",
+            },
+            agentAssetResolver: { field: "device", matchBy: "name" },
+          },
+        }),
+      }),
+      environment(db, storage.bucket),
+    );
+
+    expect(response.status).toBe(201);
+    expect(requestedPaths).toContain("/v1/contacts?pageSize=200&clientId=42");
+    expect(requestedPaths).toContain("/v1/organization/users?pageSize=200");
+    expect(requestedPaths).toContain("/v1/assets/agents?pageSize=200");
+  });
+
+  it("does not load a tenant-wide contacts catalog when saving a dynamic-client rule", async () => {
+    const db = database();
+    const storage = archive();
+    await importGoreloClients(db, [
+      {
+        id: 42,
+        name: "Acme",
+        billingName: null,
+        alternateName: null,
+        status: "Active",
+        isDefault: false,
+        domains: ["acme.example"],
+      },
+    ]);
+    const requestedPaths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        requestedPaths.push(url.pathname);
+        switch (url.pathname) {
+          case "/v1/tickets/statuses":
+            return Response.json([
+              { id: 10, name: "New", baseStatusId: 1, sortOrder: 0 },
+            ]);
+          case "/v1/organization/groups":
+            return Response.json([{ id: 20, name: "Service Desk" }]);
+          case "/v1/tickets/types":
+            return Response.json([{ id: 30, name: "Incident" }]);
+          default:
+            throw new Error(`Unexpected catalog ${String(input)}`);
+        }
+      }),
+    );
+    const response = await handleFetch(
+      new Request("https://worker.example/api/v1/rules", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${ADMIN_TOKEN}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Dynamic client and contact",
+          conditions: [
+            {
+              field: "from_domain",
+              operator: "equals",
+              value: "vendor.example",
+            },
+          ],
+          action: {
+            type: "create_ticket",
+            fields: [
+              { key: "summary", source: "subject" },
+              { key: "customer", source: "literal", value: "Acme" },
+              {
+                key: "contact",
+                source: "literal",
+                value: "user@example.com",
+              },
+            ],
+            clientIdentityField: "customer",
+            titleTemplate: "{{summary}}",
+            statusId: 10,
+            groupId: 20,
+            typeId: 30,
+            contactResolver: { field: "contact", matchBy: "email" },
+          },
+        }),
+      }),
+      environment(db, storage.bucket),
+    );
+
+    expect(response.status).toBe(201);
+    expect(requestedPaths).toEqual([
+      "/v1/tickets/statuses",
+      "/v1/organization/groups",
+      "/v1/tickets/types",
+    ]);
+  });
+
   it("previews the exact rendered request without calling Gorelo", async () => {
     const db = database();
     await seedTicketRule(db);

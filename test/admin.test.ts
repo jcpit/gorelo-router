@@ -569,7 +569,10 @@ describe("admin dashboard", () => {
       "captures.forEach((capture)=>addWebhookFieldRow(capture.field))",
     );
     expect(html).toContain(
-      "renumberWebhookFields(); updateClientIdentityOptions(webhookIdentity); populateGoreloIdentityOptions(goreloIdentity); editorDirty=true;",
+      "renumberWebhookFields(); updateClientIdentityOptions(webhookIdentity); populateGoreloIdentityOptions(goreloIdentity); populateGoreloAssignmentOptions(goreloAssignments); editorDirty=true;",
+    );
+    expect(html).toContain(
+      "const goreloAssignments=Object.fromEntries(goreloAssignmentDefinitions.map((definition)=>[definition.resolverProperty,{field:byId(definition.resolverFieldId).value}]))",
     );
     expect(html).toContain(
       'const start=node("textarea"); start.id="webhook-start-"+webhookFieldSequence; start.dataset.role="webhook-start-after"; start.className="extraction-marker"; start.rows=2; start.maxLength=256;',
@@ -604,7 +607,7 @@ describe("admin dashboard", () => {
       '<div id="goreloVariableBar" class="gorelo-variable-bar">',
     );
     expect(html).toContain(
-      '<span id="goreloVariableTarget" role="status" aria-live="polite">Focus a template field, then choose a token.</span>',
+      '<span id="goreloVariableTarget" role="status" aria-live="polite">Learned variables are text until mapped to a template or assignment below.</span>',
     );
     expect(html).toContain(
       '<div id="goreloVariableChips" class="gorelo-variable-chips" aria-label="Available learned variables"></div>',
@@ -726,8 +729,68 @@ describe("admin dashboard", () => {
     expect(html).not.toContain('id="ticketUptimeIds"');
   });
 
+  it("maps contacts, devices, and technicians from fixed records or extracted fields", async () => {
+    const html = await adminResponse().text();
+
+    expect(html).toContain(
+      '<h5 id="goreloAssignmentsHeading">Assignments &amp; associations</h5>',
+    );
+    expect(html).toContain(
+      "Learned fields remain plain text until mapped here.",
+    );
+    expect(html).toContain('id="ticketContactMode"');
+    expect(html).toContain('id="ticketContactResolverField"');
+    expect(html).toContain('id="ticketContactResolverMatchBy"');
+    expect(html).toContain('id="ticketAgentAssetMode"');
+    expect(html).toContain('id="ticketAgentAssetResolverField"');
+    expect(html).toContain('id="ticketAgentAssetResolverMatchBy"');
+    expect(html).toContain('id="ticketLeadAssigneeMode"');
+    expect(html).toContain('id="ticketLeadAssigneeResolverField"');
+    expect(html).toContain('id="ticketLeadAssigneeResolverMatchBy"');
+    expect(html).toContain('<option value="name">Exact device name</option>');
+    expect(html).toContain(
+      'resolverProperty:"contactResolver",fixedProperty:"contactId"',
+    );
+    expect(html).toContain(
+      'resolverProperty:"agentAssetResolver",fixedProperty:"agentAssetIds"',
+    );
+    expect(html).toContain(
+      'resolverProperty:"leadAssigneeResolver",fixedProperty:"leadAssigneeId"',
+    );
+    expect(html).toContain(
+      "action[definition.resolverProperty]={field,matchBy}",
+    );
+    expect(html).toContain(
+      "goreloAssignmentDefinitions.forEach((definition)=>collectGoreloAssignment(action,definition,keys))",
+    );
+    expect(html).toContain(
+      'byId(definition.modeId).value=resolver?"extracted":fixed!==undefined&&(!Array.isArray(fixed)||fixed.length)?"fixed":"none"',
+    );
+    expect(html).toContain("function goreloExtractionKeys()");
+    expect(html).toContain("function populateGoreloAssignmentOptions(");
+    expect(html).toContain(
+      "Dry run and live processing query only that customer’s contacts.",
+    );
+    expect(html).not.toContain('kinds.push("contacts")');
+    expect(html).toContain(
+      "filter((asset)=>clientId?asset.clientId===clientId:false)",
+    );
+    expect(html).not.toContain("asset.clientId===null||");
+    expect(html).toContain(
+      'if (resetUnavailable&&mode.value==="fixed"&&!fixedAvailable) mode.value="none"',
+    );
+    expect(html).toContain(
+      ".gorelo-assignment-section { display:grid; gap:11px; padding:14px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }",
+    );
+    expect(html).not.toContain(".gorelo-assignment-card");
+  });
+
   it("loads current Gorelo catalogs and scopes client-specific selectors", async () => {
     const html = await adminResponse().text();
+    const globalCatalogLoader = html.slice(
+      html.indexOf("async function ensureGoreloActionCatalogs"),
+      html.indexOf("function operatorsFor"),
+    );
 
     expect(html).toContain(
       'api("/api/v1/integrations/gorelo/catalogs/"+encodeURIComponent(kind)',
@@ -740,6 +803,10 @@ describe("admin dashboard", () => {
     );
     expect(html).toContain(
       'loadGoreloActionCatalog("contacts",clientId,force)',
+    );
+    expect(globalCatalogLoader).not.toContain('"contacts"');
+    expect(html).toContain(
+      "goreloAssignmentDefinitions.forEach((definition)=>{ byId(definition.modeId).onchange=()=>{ updateGoreloAssignmentControls(); editorDirty=true; }; })",
     );
     expect(html).toContain("function populateGoreloClientSelect()");
     expect(html).toContain("goreloClients.filter((client)=>!client.stale)");
@@ -766,6 +833,15 @@ describe("admin dashboard", () => {
     );
     expect(html).toContain("Prepared credential-free API request");
     expect(html).toContain('goreloAction?"Gorelo API · no email forward"');
+    expect(html).toContain("function appendGoreloEntityResolutions(");
+    expect(html).toContain('node("h6","Assignments & associations")');
+    expect(html).toContain(
+      'entity_resolution_failed:"Assignment or association resolution failed"',
+    );
+    expect(html).toContain("goreloEntityResolutionFailureLabels");
+    expect(html).toContain("appendGoreloEntityResolutions(data,section)");
+    expect(html).toContain("appendGoreloEntityResolutions(data,card)");
+    expect(html).not.toContain("resolution.value");
   });
 
   it("uses compact, explicit dry-run result states without stale submissions", async () => {

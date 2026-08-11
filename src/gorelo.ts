@@ -66,6 +66,7 @@ export interface GoreloContactCatalogItem {
   firstName: string | null;
   lastName: string | null;
   primaryEmail: string | null;
+  alias: string | null;
   clientId: number | null;
   locationId: number | null;
   status: string | null;
@@ -75,6 +76,8 @@ export interface GoreloAgentAssetCatalogItem {
   id: string;
   name: string;
   displayName: string | null;
+  /** Original Gorelo API Name, retained even when DisplayName is present. */
+  deviceName: string | null;
   clientId: number | null;
   locationId: number | null;
   serialNumber: string | null;
@@ -283,6 +286,7 @@ const contactSchema = z.object({
   firstName: optionalNameSchema,
   lastName: optionalNameSchema,
   primaryEmail: z.string().max(320).nullable().optional(),
+  alias: z.string().max(512).nullable().optional(),
   clientId: positiveIdSchema.nullable().optional(),
   clientLocationId: positiveIdSchema.nullable().optional(),
   status: optionalStatusSchema,
@@ -511,6 +515,7 @@ class SecureGoreloClient implements GoreloClient {
         firstName: item.firstName ?? null,
         lastName: item.lastName ?? null,
         primaryEmail: item.primaryEmail?.toLowerCase() ?? null,
+        alias: optionalCatalogText(item.alias),
         clientId: item.clientId ?? null,
         locationId: item.clientLocationId ?? null,
         status: item.status?.name ?? null,
@@ -526,6 +531,7 @@ class SecureGoreloClient implements GoreloClient {
       id: item.id,
       name: label(item.displayName ?? item.name, "Agent asset", item.id),
       displayName: item.displayName ?? null,
+      deviceName: optionalCatalogText(item.name),
       clientId: item.clientId || null,
       locationId: item.clientLocationId || null,
       serialNumber: item.serialNo ?? null,

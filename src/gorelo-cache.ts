@@ -120,7 +120,8 @@ export async function putGoreloCatalogCache(
          payload_json = excluded.payload_json,
          item_count = excluded.item_count,
          fetched_at = excluded.fetched_at,
-         expires_at = excluded.expires_at`,
+         expires_at = excluded.expires_at
+       WHERE excluded.fetched_at >= gorelo_catalog_cache.fetched_at`,
     )
     .bind(
       key,

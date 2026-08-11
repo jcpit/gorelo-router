@@ -2,13 +2,28 @@ import { resolveClientIdentity } from "./client-directory";
 import { canonicalizeDeliveryPayload } from "./delivery-repository";
 import { extractWebhookVariables } from "./extraction";
 import type {
+  GoreloAgentAssetCatalogItem,
+  GoreloContactCatalogItem,
   GoreloCreateAlertRequest,
   GoreloCreateTicketRequest,
+  GoreloUserCatalogItem,
 } from "./gorelo";
+import type {
+  GoreloCatalogKind,
+  GoreloCatalogSnapshot,
+} from "./gorelo-integration";
 import type { EmailFacts, GoreloRuleAction } from "./types";
 
 export type GoreloActionPreflightError =
-  "extraction_failed" | "client_resolution_failed" | "mapping_failed";
+  | "extraction_failed"
+  | "client_resolution_failed"
+  | "entity_resolution_failed"
+  | "mapping_failed";
+
+export type GoreloActionCatalogLoader = (
+  kind: GoreloCatalogKind,
+  options?: { clientId?: number },
+) => Promise<GoreloCatalogSnapshot>;
 
 export interface PreparedGoreloAction {
   actionType: "create_ticket" | "create_alert";
@@ -28,6 +43,60 @@ interface ResolvedClientAudit {
   id: number;
   name: string;
   matchedBy: string;
+}
+
+type TicketAction = Extract<GoreloRuleAction, { type: "create_ticket" }>;
+type ResolutionEntity = "contact" | "leadAssignee" | "agentAsset";
+type ResolutionFailureStatus =
+  "not_found" | "ambiguous" | "invalid" | "catalog_unavailable";
+
+interface ResolvedEntityAudit {
+  status: "resolved";
+  id: number | string;
+  name: string;
+  matchedBy: string;
+}
+
+interface FailedEntityAudit {
+  status: ResolutionFailureStatus;
+  matchedBy: string;
+}
+
+type EntityResolutionAudit = ResolvedEntityAudit | FailedEntityAudit;
+
+type EntityResolutionAuditMap = Partial<
+  Record<ResolutionEntity, EntityResolutionAudit>
+> & {
+  location?:
+    | {
+        status: "derived";
+        id: number;
+        source: "contact" | "agent_asset" | "entities";
+      }
+    | {
+        status: "conflict" | "not_found" | "catalog_unavailable";
+        matchedBy: "entity_locations";
+      };
+};
+
+interface ResolvedTicketAssociations {
+  contactId?: number;
+  leadAssigneeId?: number;
+  agentAssetIds?: readonly string[];
+  locationId?: number;
+  entityResolutions: EntityResolutionAuditMap;
+}
+
+class EntityResolutionError extends Error {
+  override readonly name: string = "EntityResolutionError";
+}
+
+class ResolutionValueError extends EntityResolutionError {
+  override readonly name: string = "ResolutionValueError";
+
+  constructor(readonly status: "not_found" | "invalid") {
+    super("The resolver value is unavailable or invalid");
+  }
 }
 
 const TEMPLATE_REFERENCE = /{{\s*([A-Za-z_][A-Za-z0-9_]{0,63})\s*}}/g;
@@ -105,12 +174,539 @@ async function resolveClient(
   };
 }
 
-function ticketRequest(
-  action: Extract<GoreloRuleAction, { type: "create_ticket" }>,
+const MAX_RESOLUTION_CATALOG_ITEMS = 5_000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPositiveId(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) > 0;
+}
+
+function isNullableText(value: unknown, maximum: number): boolean {
+  return (
+    value === null || (typeof value === "string" && value.length <= maximum)
+  );
+}
+
+function isNullablePositiveId(value: unknown): value is number | null {
+  return value === null || isPositiveId(value);
+}
+
+function isContactCatalogItem(
+  value: unknown,
+): value is GoreloContactCatalogItem {
+  if (!isRecord(value)) return false;
+  return (
+    isPositiveId(value.id) &&
+    typeof value.name === "string" &&
+    value.name.length <= 512 &&
+    isNullableText(value.firstName, 512) &&
+    isNullableText(value.lastName, 512) &&
+    isNullableText(value.primaryEmail, 320) &&
+    isNullableText(value.alias, 512) &&
+    isNullablePositiveId(value.clientId) &&
+    isNullablePositiveId(value.locationId) &&
+    isNullableText(value.status, 256)
+  );
+}
+
+function isAgentAssetCatalogItem(
+  value: unknown,
+): value is GoreloAgentAssetCatalogItem {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      value.id,
+    ) &&
+    typeof value.name === "string" &&
+    value.name.length <= 512 &&
+    isNullableText(value.displayName, 512) &&
+    isNullableText(value.deviceName, 512) &&
+    isNullablePositiveId(value.clientId) &&
+    isNullablePositiveId(value.locationId) &&
+    isNullableText(value.serialNumber, 512) &&
+    isNullableText(value.status, 256)
+  );
+}
+
+function isUserCatalogItem(value: unknown): value is GoreloUserCatalogItem {
+  if (!isRecord(value)) return false;
+  return (
+    isPositiveId(value.id) &&
+    typeof value.name === "string" &&
+    value.name.length <= 512 &&
+    isNullableText(value.email, 320) &&
+    isNullableText(value.status, 256)
+  );
+}
+
+function isLocationCatalogItem(
+  value: unknown,
+  clientId: number,
+): value is { id: number; clientId: number } {
+  if (!isRecord(value)) return false;
+  return (
+    isPositiveId(value.id) &&
+    isPositiveId(value.clientId) &&
+    value.clientId === clientId &&
+    typeof value.name === "string" &&
+    value.name.length <= 512 &&
+    typeof value.isDefault === "boolean"
+  );
+}
+
+function catalogItems<T>(
+  snapshot: GoreloCatalogSnapshot,
+  kind: GoreloCatalogKind,
+  predicate: (item: unknown) => item is T,
+  now = new Date(),
+): readonly T[] {
+  const expiresAt = Date.parse(snapshot.expiresAt);
+  const fetchedAt = Date.parse(snapshot.fetchedAt);
+  if (
+    snapshot.kind !== kind ||
+    !Array.isArray(snapshot.items) ||
+    snapshot.items.length > MAX_RESOLUTION_CATALOG_ITEMS ||
+    !Number.isSafeInteger(snapshot.totalCount) ||
+    snapshot.totalCount !== snapshot.items.length ||
+    !Number.isFinite(fetchedAt) ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt <= now.getTime() ||
+    fetchedAt >= expiresAt ||
+    snapshot.pagination?.hasMore === true ||
+    !snapshot.items.every(predicate)
+  ) {
+    throw new EntityResolutionError(
+      `The ${kind} catalog is unavailable for exact resolution`,
+    );
+  }
+  return snapshot.items;
+}
+
+/** Validates a fresh, complete catalog before a resolver-backed rule is saved. */
+export function assertGoreloEntityResolutionCatalog(
+  kind: "contacts" | "users" | "agent-assets",
+  snapshot: GoreloCatalogSnapshot,
+): void {
+  switch (kind) {
+    case "contacts":
+      catalogItems(snapshot, kind, isContactCatalogItem);
+      return;
+    case "users":
+      catalogItems(snapshot, kind, isUserCatalogItem);
+      return;
+    case "agent-assets":
+      catalogItems(snapshot, kind, isAgentAssetCatalogItem);
+      return;
+  }
+}
+
+function normalizeExact(value: string): string {
+  return value.normalize("NFKC").trim().toLowerCase();
+}
+
+function resolutionValue(
+  variables: Readonly<Record<string, string>>,
+  field: string,
+  matchBy: string,
+): string {
+  const raw = variables[field];
+  if (raw === undefined) {
+    throw new ResolutionValueError("not_found");
+  }
+  const value = normalizeExact(raw);
+  if (!value) throw new ResolutionValueError("not_found");
+  const maximum = matchBy === "email" ? 320 : matchBy === "id" ? 64 : 512;
+  if (value.length > maximum || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw new ResolutionValueError("invalid");
+  }
+  if (matchBy === "email" && !/^[^@\s]+@[^@\s]+$/.test(value)) {
+    throw new ResolutionValueError("invalid");
+  }
+  return value;
+}
+
+function isCanonicalPositiveId(value: string): boolean {
+  if (!/^[1-9]\d*$/.test(value)) return false;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 && String(parsed) === value;
+}
+
+function setFailure(
+  resolutions: EntityResolutionAuditMap,
+  entity: ResolutionEntity,
+  matchedBy: string,
+  status: ResolutionFailureStatus,
+): never {
+  resolutions[entity] = { status, matchedBy };
+  throw new EntityResolutionError(`${entity} resolution failed`);
+}
+
+async function loadCatalogForResolution<T>(
+  loader: GoreloActionCatalogLoader | undefined,
+  kind: GoreloCatalogKind,
+  predicate: (item: unknown) => item is T,
+  options?: { clientId?: number },
+): Promise<readonly T[]> {
+  if (!loader) throw new EntityResolutionError("Catalog loader is unavailable");
+  const snapshot = await loader(kind, options);
+  if (
+    options?.clientId !== undefined &&
+    snapshot.clientId !== options.clientId
+  ) {
+    throw new EntityResolutionError(
+      `The ${kind} catalog has the wrong client scope`,
+    );
+  }
+  return catalogItems(snapshot, kind, predicate);
+}
+
+function distinctById<T extends { id: number | string }>(
+  items: readonly T[],
+): readonly T[] {
+  const matches = new Map<string, T>();
+  for (const item of items) {
+    const key = normalizeExact(String(item.id));
+    if (!matches.has(key)) matches.set(key, item);
+  }
+  return [...matches.values()];
+}
+
+function resolverMatches(
+  value: string,
+  candidates: readonly (string | null)[],
+): boolean {
+  return candidates.some(
+    (candidate) => candidate !== null && normalizeExact(candidate) === value,
+  );
+}
+
+async function resolveContact(
+  action: TicketAction,
   variables: Readonly<Record<string, string>>,
   clientId: number,
+  loader: GoreloActionCatalogLoader | undefined,
+  resolutions: EntityResolutionAuditMap,
+): Promise<GoreloContactCatalogItem | undefined> {
+  const resolver = action.contactResolver;
+  if (!resolver) return undefined;
+  let value: string;
+  try {
+    value = resolutionValue(variables, resolver.field, resolver.matchBy);
+  } catch (error) {
+    return setFailure(
+      resolutions,
+      "contact",
+      resolver.matchBy,
+      error instanceof ResolutionValueError ? error.status : "invalid",
+    );
+  }
+  if (resolver.matchBy === "id" && !isCanonicalPositiveId(value)) {
+    return setFailure(resolutions, "contact", resolver.matchBy, "invalid");
+  }
+  let items: readonly GoreloContactCatalogItem[];
+  try {
+    items = await loadCatalogForResolution(
+      loader,
+      "contacts",
+      isContactCatalogItem,
+      { clientId },
+    );
+  } catch {
+    return setFailure(
+      resolutions,
+      "contact",
+      resolver.matchBy,
+      "catalog_unavailable",
+    );
+  }
+  const matching = distinctById(
+    items.filter((item) => {
+      if (resolver.matchBy === "id") return String(item.id) === value;
+      if (resolver.matchBy === "email") {
+        return resolverMatches(value, [item.primaryEmail]);
+      }
+      if (resolver.matchBy === "alias") {
+        return resolverMatches(value, [item.alias]);
+      }
+      return resolverMatches(value, [item.name]);
+    }),
+  );
+  const scoped = matching.filter((item) => item.clientId === clientId);
+  if (scoped.length === 0) {
+    return setFailure(
+      resolutions,
+      "contact",
+      resolver.matchBy,
+      matching.length ? "invalid" : "not_found",
+    );
+  }
+  if (scoped.length > 1) {
+    return setFailure(resolutions, "contact", resolver.matchBy, "ambiguous");
+  }
+  const resolved = scoped[0]!;
+  resolutions.contact = {
+    status: "resolved",
+    id: resolved.id,
+    name: resolved.name,
+    matchedBy: resolver.matchBy,
+  };
+  return resolved;
+}
+
+async function resolveLeadAssignee(
+  action: TicketAction,
+  variables: Readonly<Record<string, string>>,
+  loader: GoreloActionCatalogLoader | undefined,
+  resolutions: EntityResolutionAuditMap,
+): Promise<GoreloUserCatalogItem | undefined> {
+  const resolver = action.leadAssigneeResolver;
+  if (!resolver) return undefined;
+  let value: string;
+  try {
+    value = resolutionValue(variables, resolver.field, resolver.matchBy);
+  } catch (error) {
+    return setFailure(
+      resolutions,
+      "leadAssignee",
+      resolver.matchBy,
+      error instanceof ResolutionValueError ? error.status : "invalid",
+    );
+  }
+  if (resolver.matchBy === "id" && !isCanonicalPositiveId(value)) {
+    return setFailure(resolutions, "leadAssignee", resolver.matchBy, "invalid");
+  }
+  let items: readonly GoreloUserCatalogItem[];
+  try {
+    items = await loadCatalogForResolution(loader, "users", isUserCatalogItem);
+  } catch {
+    return setFailure(
+      resolutions,
+      "leadAssignee",
+      resolver.matchBy,
+      "catalog_unavailable",
+    );
+  }
+  const matching = distinctById(
+    items.filter((item) => {
+      if (resolver.matchBy === "id") return String(item.id) === value;
+      if (resolver.matchBy === "email") {
+        return resolverMatches(value, [item.email]);
+      }
+      return resolverMatches(value, [item.name]);
+    }),
+  );
+  if (matching.length === 0) {
+    return setFailure(
+      resolutions,
+      "leadAssignee",
+      resolver.matchBy,
+      "not_found",
+    );
+  }
+  if (matching.length > 1) {
+    return setFailure(
+      resolutions,
+      "leadAssignee",
+      resolver.matchBy,
+      "ambiguous",
+    );
+  }
+  const resolved = matching[0]!;
+  resolutions.leadAssignee = {
+    status: "resolved",
+    id: resolved.id,
+    name: resolved.name,
+    matchedBy: resolver.matchBy,
+  };
+  return resolved;
+}
+
+async function resolveAgentAsset(
+  action: TicketAction,
+  variables: Readonly<Record<string, string>>,
+  clientId: number,
+  loader: GoreloActionCatalogLoader | undefined,
+  resolutions: EntityResolutionAuditMap,
+): Promise<GoreloAgentAssetCatalogItem | undefined> {
+  const resolver = action.agentAssetResolver;
+  if (!resolver) return undefined;
+  let value: string;
+  try {
+    value = resolutionValue(variables, resolver.field, resolver.matchBy);
+  } catch (error) {
+    return setFailure(
+      resolutions,
+      "agentAsset",
+      resolver.matchBy,
+      error instanceof ResolutionValueError ? error.status : "invalid",
+    );
+  }
+  if (
+    resolver.matchBy === "id" &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      value,
+    )
+  ) {
+    return setFailure(resolutions, "agentAsset", resolver.matchBy, "invalid");
+  }
+  let items: readonly GoreloAgentAssetCatalogItem[];
+  try {
+    items = await loadCatalogForResolution(
+      loader,
+      "agent-assets",
+      isAgentAssetCatalogItem,
+    );
+  } catch {
+    return setFailure(
+      resolutions,
+      "agentAsset",
+      resolver.matchBy,
+      "catalog_unavailable",
+    );
+  }
+  const matching = distinctById(
+    items.filter((item) => {
+      if (resolver.matchBy === "id") {
+        return normalizeExact(item.id) === value;
+      }
+      if (resolver.matchBy === "serial_number") {
+        return resolverMatches(value, [item.serialNumber]);
+      }
+      return resolverMatches(value, [item.deviceName, item.displayName]);
+    }),
+  );
+  const scoped = matching.filter((item) => item.clientId === clientId);
+  if (scoped.length === 0) {
+    return setFailure(
+      resolutions,
+      "agentAsset",
+      resolver.matchBy,
+      matching.length ? "invalid" : "not_found",
+    );
+  }
+  if (scoped.length > 1) {
+    return setFailure(resolutions, "agentAsset", resolver.matchBy, "ambiguous");
+  }
+  const resolved = scoped[0]!;
+  resolutions.agentAsset = {
+    status: "resolved",
+    id: resolved.id,
+    name: resolved.name,
+    matchedBy: resolver.matchBy,
+  };
+  return resolved;
+}
+
+async function resolvedTicketAssociations(
+  action: TicketAction,
+  variables: Readonly<Record<string, string>>,
+  clientId: number,
+  loader: GoreloActionCatalogLoader | undefined,
+  resolutions: EntityResolutionAuditMap,
+): Promise<ResolvedTicketAssociations> {
+  const [contactResult, leadAssigneeResult, agentAssetResult] =
+    await Promise.allSettled([
+      resolveContact(action, variables, clientId, loader, resolutions),
+      resolveLeadAssignee(action, variables, loader, resolutions),
+      resolveAgentAsset(action, variables, clientId, loader, resolutions),
+    ] as const);
+  for (const result of [contactResult, leadAssigneeResult, agentAssetResult]) {
+    if (result.status === "rejected") throw result.reason;
+  }
+  const contact =
+    contactResult.status === "fulfilled" ? contactResult.value : undefined;
+  const leadAssignee =
+    leadAssigneeResult.status === "fulfilled"
+      ? leadAssigneeResult.value
+      : undefined;
+  const agentAsset =
+    agentAssetResult.status === "fulfilled"
+      ? agentAssetResult.value
+      : undefined;
+  const entityLocations = [
+    ...(contact?.locationId
+      ? [{ id: contact.locationId, source: "contact" }]
+      : []),
+    ...(agentAsset?.locationId
+      ? [{ id: agentAsset.locationId, source: "agent_asset" }]
+      : []),
+  ] as const;
+  const locationIds = new Set(entityLocations.map((location) => location.id));
+  if (
+    locationIds.size > 1 ||
+    (action.locationId !== undefined &&
+      [...locationIds].some((id) => id !== action.locationId))
+  ) {
+    resolutions.location = {
+      status: "conflict",
+      matchedBy: "entity_locations",
+    };
+    throw new EntityResolutionError("Resolved entity locations conflict");
+  }
+  let locationId = action.locationId;
+  if (locationId === undefined && locationIds.size === 1) {
+    locationId = [...locationIds][0]!;
+    let locations: readonly { id: number; clientId: number }[];
+    try {
+      locations = await loadCatalogForResolution(
+        loader,
+        "locations",
+        (item): item is { id: number; clientId: number } =>
+          isLocationCatalogItem(item, clientId),
+        { clientId },
+      );
+    } catch {
+      resolutions.location = {
+        status: "catalog_unavailable",
+        matchedBy: "entity_locations",
+      };
+      throw new EntityResolutionError(
+        "The resolved entity location is unavailable",
+      );
+    }
+    if (!locations.some((location) => location.id === locationId)) {
+      resolutions.location = {
+        status: "not_found",
+        matchedBy: "entity_locations",
+      };
+      throw new EntityResolutionError("The resolved entity location is stale");
+    }
+    const sources = new Set(entityLocations.map((location) => location.source));
+    resolutions.location = {
+      status: "derived",
+      id: locationId,
+      source:
+        sources.size > 1
+          ? "entities"
+          : sources.has("contact")
+            ? "contact"
+            : "agent_asset",
+    };
+  }
+  return {
+    ...(contact ? { contactId: contact.id } : {}),
+    ...(leadAssignee ? { leadAssigneeId: leadAssignee.id } : {}),
+    ...(agentAsset ? { agentAssetIds: [agentAsset.id] } : {}),
+    ...(locationId === undefined ? {} : { locationId }),
+    entityResolutions: resolutions,
+  };
+}
+
+function ticketRequest(
+  action: TicketAction,
+  variables: Readonly<Record<string, string>>,
+  clientId: number,
+  associations?: ResolvedTicketAssociations,
 ): GoreloCreateTicketRequest {
   const title = renderTemplate(action.titleTemplate, variables, 998, true)!;
+  const locationId = associations?.locationId ?? action.locationId;
+  const contactId = associations?.contactId ?? action.contactId;
+  const leadAssigneeId = associations?.leadAssigneeId ?? action.leadAssigneeId;
+  const agentAssetIds = associations?.agentAssetIds ?? action.agentAssetIds;
   const description = action.descriptionTemplate
     ? renderTemplate(action.descriptionTemplate, variables, 16_000, false)
     : undefined;
@@ -136,16 +732,12 @@ function ticketRequest(
     ...(action.sourceId === undefined
       ? {}
       : { SourceId: action.sourceId as 1 | 2 | 3 | 4 | 5 | 6 }),
-    ...(action.locationId === undefined
-      ? {}
-      : { LocationId: action.locationId }),
-    ...(action.contactId === undefined ? {} : { ContactId: action.contactId }),
+    ...(locationId === undefined ? {} : { LocationId: locationId }),
+    ...(contactId === undefined ? {} : { ContactId: contactId }),
     ...(action.ccContactIds === undefined
       ? {}
       : { CcContactIds: [...action.ccContactIds] }),
-    ...(action.leadAssigneeId === undefined
-      ? {}
-      : { LeadAssigneeId: action.leadAssigneeId }),
+    ...(leadAssigneeId === undefined ? {} : { LeadAssigneeId: leadAssigneeId }),
     ...(action.assistingAssigneeIds === undefined
       ? {}
       : { AssistingAssigneeIds: [...action.assistingAssigneeIds] }),
@@ -153,9 +745,9 @@ function ticketRequest(
       ? {}
       : { WatcherIds: [...action.watcherIds] }),
     ...(action.tagIds === undefined ? {} : { TagIds: [...action.tagIds] }),
-    ...(action.agentAssetIds === undefined
+    ...(agentAssetIds === undefined
       ? {}
-      : { AgentAssetIds: [...action.agentAssetIds] }),
+      : { AgentAssetIds: [...agentAssetIds] }),
     SendTicketCreatedEmail: action.sendTicketCreatedEmail,
     IsUnread: action.isUnread,
   };
@@ -183,6 +775,7 @@ export async function prepareGoreloAction(
   db: D1Database,
   facts: EmailFacts,
   action: GoreloRuleAction,
+  options: { loadCatalog?: GoreloActionCatalogLoader } = {},
 ): Promise<PreparedGoreloAction> {
   let variables: Record<string, string>;
   try {
@@ -209,12 +802,43 @@ export async function prepareGoreloAction(
     };
   }
 
+  const entityResolutions: EntityResolutionAuditMap = {};
+  let associations: ResolvedTicketAssociations | undefined;
+  if (action.type === "create_ticket") {
+    try {
+      associations = await resolvedTicketAssociations(
+        action,
+        variables,
+        client.id,
+        options.loadCatalog,
+        entityResolutions,
+      );
+    } catch (error) {
+      if (!(error instanceof EntityResolutionError)) throw error;
+      return {
+        actionType: action.type,
+        data: {
+          variables,
+          goreloClient: client,
+          ...(Object.keys(entityResolutions).length
+            ? { entityResolutions }
+            : {}),
+        },
+        preflightError: "entity_resolution_failed",
+      };
+    }
+  }
+
   try {
     const request =
       action.type === "create_ticket"
-        ? ticketRequest(action, variables, client.id)
+        ? ticketRequest(action, variables, client.id, associations)
         : alertRequest(action, variables, client.id);
-    const data = { variables, goreloClient: client };
+    const data = {
+      variables,
+      goreloClient: client,
+      ...(Object.keys(entityResolutions).length ? { entityResolutions } : {}),
+    };
     canonicalizeDeliveryPayload({
       schemaVersion: 1,
       region: "aue",
@@ -229,7 +853,11 @@ export async function prepareGoreloAction(
   } catch {
     return {
       actionType: action.type,
-      data: { variables, goreloClient: client },
+      data: {
+        variables,
+        goreloClient: client,
+        ...(Object.keys(entityResolutions).length ? { entityResolutions } : {}),
+      },
       preflightError: "mapping_failed",
     };
   }

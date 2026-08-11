@@ -256,6 +256,17 @@ const ADMIN_HTML = String.raw`<!doctype html>
     .gorelo-action-grid textarea { min-height:88px; }
     .gorelo-action-grid select[multiple] { min-height:112px; padding:5px; }
     .gorelo-action-grid select[multiple] option { padding:5px 7px; border-radius:5px; }
+    .gorelo-assignment-section { display:grid; gap:11px; padding:14px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+    .gorelo-assignment-heading h5 { margin:0; font-size:13px; }
+    .gorelo-assignment-heading p { margin:3px 0 0; color:var(--muted); font-size:11px; }
+    .gorelo-assignment-grid { display:grid; }
+    .gorelo-assignment-row { min-width:0; display:grid; grid-template-columns:minmax(150px,.6fr) minmax(170px,.7fr) minmax(0,1.45fr); gap:12px; align-items:start; padding:13px 0; border-top:1px solid var(--line); }
+    .gorelo-assignment-row:first-child { padding-top:2px; border-top:0; }
+    .gorelo-assignment-copy h6 { margin:0; color:#34445e; font-size:12px; }
+    .gorelo-assignment-copy .field-help { display:block; margin-top:3px; }
+    .gorelo-assignment-dynamic { display:grid; grid-template-columns:minmax(0,1fr) minmax(120px,.7fr); gap:9px; }
+    .gorelo-assignment-dynamic > .field-help { grid-column:1/-1; }
+    .gorelo-assignment-fixed select[multiple] { min-height:112px; padding:5px; }
     .gorelo-catalog-status { margin:0; padding:9px 10px; border-radius:9px; color:var(--muted); background:#eef4fc; font-size:11px; }
     .gorelo-catalog-status.warning { color:var(--warning); background:var(--warning-bg); }
     .gorelo-variable-bar { display:grid; grid-template-columns:180px minmax(0,1fr); gap:10px 14px; align-items:start; padding:11px 12px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:#fff; }
@@ -687,10 +698,11 @@ const ADMIN_HTML = String.raw`<!doctype html>
       .toolbar > button,.toolbar > select { flex:1; }
       .rule-card { grid-template-columns:55px minmax(0,1fr); padding-right:12px; }
       .rule-actions { gap:5px; flex-wrap:wrap; }
-      .form-grid,.condition-grid,.test-form-grid,.webhook-action-grid,.extraction-core,.extraction-source-fields,.extraction-options,.client-linkage,.gorelo-action-grid { grid-template-columns:1fr; }
+      .form-grid,.condition-grid,.test-form-grid,.webhook-action-grid,.extraction-core,.extraction-source-fields,.extraction-options,.client-linkage,.gorelo-action-grid,.gorelo-assignment-row { grid-template-columns:1fr; }
       .span-2 { grid-column:auto; }
       .gorelo-action-grid .wide,.gorelo-flags { grid-column:auto; }
       .gorelo-variable-bar { grid-template-columns:1fr; }
+      .gorelo-assignment-dynamic { grid-template-columns:1fr; }
       .check-field { padding-top:3px; }
       .condition-row { grid-template-columns:30px minmax(0,1fr); }
       .remove-condition { grid-column:2; width:auto; margin:0; justify-self:start; padding-inline:8px; font-size:13px; }
@@ -944,7 +956,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
                 </div>
                 <p id="goreloCatalogStatus" class="gorelo-catalog-status" role="status">Select a Gorelo API action to load clients and catalogs.</p>
                 <div id="goreloVariableBar" class="gorelo-variable-bar">
-                  <div class="gorelo-variable-copy"><strong>Insert a learned variable</strong><span id="goreloVariableTarget" role="status" aria-live="polite">Focus a template field, then choose a token.</span></div>
+                  <div class="gorelo-variable-copy"><strong>Use a learned variable</strong><span id="goreloVariableTarget" role="status" aria-live="polite">Learned variables are text until mapped to a template or assignment below.</span></div>
                   <div id="goreloVariableChips" class="gorelo-variable-chips" aria-label="Available learned variables"></div>
                 </div>
                 <div id="ticketActionFields" class="gorelo-action-grid hidden">
@@ -956,14 +968,44 @@ const ADMIN_HTML = String.raw`<!doctype html>
                   <div class="form-field"><label for="ticketTypeId">Ticket type</label><select id="ticketTypeId" required><option value="">Load ticket types</option></select></div>
                   <div class="form-field"><label for="ticketPriorityId">Priority</label><select id="ticketPriorityId"><option value="">Gorelo default</option><option value="0">Priority 0</option><option value="1">Priority 1</option><option value="2">Priority 2</option><option value="3">Priority 3</option><option value="4">Priority 4</option></select></div>
                   <div class="form-field"><label for="ticketSourceId">Source</label><select id="ticketSourceId"><option value="">Gorelo default</option><option value="1">Source 1</option><option value="2">Source 2</option><option value="3">Source 3</option><option value="4">Source 4</option><option value="5">Source 5</option><option value="6">Source 6</option></select></div>
-                  <div class="form-field"><label for="ticketLocationId">Location</label><select id="ticketLocationId"><option value="">No location</option></select><span class="field-help">Available for a fixed client.</span></div>
-                  <div class="form-field"><label for="ticketContactId">Primary contact</label><select id="ticketContactId"><option value="">No contact</option></select><span class="field-help">Available for a fixed client.</span></div>
+                  <div class="form-field"><label for="ticketLocationId">Location</label><select id="ticketLocationId"><option value="">No location</option></select><span class="field-help">Choose one for a fixed client. Dynamically resolved contacts and devices can derive a shared location safely.</span></div>
+                  <section class="gorelo-assignment-section wide" aria-labelledby="goreloAssignmentsHeading">
+                    <div class="gorelo-assignment-heading"><h5 id="goreloAssignmentsHeading">Assignments &amp; associations</h5><p>Choose a fixed Gorelo record or resolve an extracted value exactly at delivery time. Learned fields remain plain text until mapped here.</p></div>
+                    <div class="gorelo-assignment-grid">
+                      <div class="gorelo-assignment-row" role="group" aria-labelledby="ticketContactAssignmentHeading">
+                        <div class="gorelo-assignment-copy"><h6 id="ticketContactAssignmentHeading">Customer contact</h6><span class="field-help">Associates the requester with the ticket inside the resolved customer.</span></div>
+                        <div class="form-field"><label for="ticketContactMode">Assignment</label><select id="ticketContactMode"><option value="none">None</option><option value="fixed">Fixed contact</option><option value="extracted">From extracted field</option></select></div>
+                        <div id="ticketContactFixedGroup" class="form-field gorelo-assignment-fixed hidden"><label for="ticketContactId">Contact</label><select id="ticketContactId"><option value="">Select a contact</option></select><span class="field-help">Fixed contacts require a fixed client.</span></div>
+                        <div id="ticketContactResolverGroup" class="gorelo-assignment-dynamic hidden">
+                          <div class="form-field"><label for="ticketContactResolverField">Extraction field</label><select id="ticketContactResolverField" aria-describedby="ticketContactResolverHelp"><option value="">Add an extraction field first</option></select></div>
+                          <div class="form-field"><label for="ticketContactResolverMatchBy">Match by</label><select id="ticketContactResolverMatchBy" aria-describedby="ticketContactResolverHelp"><option value="email">Email</option><option value="alias">Alias</option><option value="name">Name</option><option value="id">Gorelo ID</option></select></div>
+                          <span id="ticketContactResolverHelp" class="field-help">Resolved after the customer is known. Dry run and live processing query only that customer’s contacts.</span>
+                        </div>
+                      </div>
+                      <div class="gorelo-assignment-row" role="group" aria-labelledby="ticketAgentAssetAssignmentHeading">
+                        <div class="gorelo-assignment-copy"><h6 id="ticketAgentAssetAssignmentHeading">Managed device</h6><span class="field-help">Associates one resolved device, or a fixed set of agent assets, with the ticket.</span></div>
+                        <div class="form-field"><label for="ticketAgentAssetMode">Association</label><select id="ticketAgentAssetMode"><option value="none">None</option><option value="fixed">Fixed devices</option><option value="extracted">From extracted field</option></select></div>
+                        <div id="ticketAgentAssetFixedGroup" class="form-field gorelo-assignment-fixed hidden"><label for="ticketAgentAssetIds">Agent assets</label><select id="ticketAgentAssetIds" multiple size="4"></select><span class="field-help">Fixed devices require a fixed client. Use Ctrl/Cmd to select more than one.</span></div>
+                        <div id="ticketAgentAssetResolverGroup" class="gorelo-assignment-dynamic hidden">
+                          <div class="form-field"><label for="ticketAgentAssetResolverField">Extraction field</label><select id="ticketAgentAssetResolverField"><option value="">Add an extraction field first</option></select></div>
+                          <div class="form-field"><label for="ticketAgentAssetResolverMatchBy">Match by</label><select id="ticketAgentAssetResolverMatchBy"><option value="name">Exact device name</option><option value="serial_number">Serial number</option><option value="id">Gorelo ID</option></select></div>
+                        </div>
+                      </div>
+                      <div class="gorelo-assignment-row" role="group" aria-labelledby="ticketLeadAssigneeAssignmentHeading">
+                        <div class="gorelo-assignment-copy"><h6 id="ticketLeadAssigneeAssignmentHeading">Gorelo technician</h6><span class="field-help">Assigns the ticket to an internal Gorelo user, not the customer contact.</span></div>
+                        <div class="form-field"><label for="ticketLeadAssigneeMode">Assignment</label><select id="ticketLeadAssigneeMode"><option value="none">None</option><option value="fixed">Fixed technician</option><option value="extracted">From extracted field</option></select></div>
+                        <div id="ticketLeadAssigneeFixedGroup" class="form-field gorelo-assignment-fixed hidden"><label for="ticketLeadAssigneeId">Technician</label><select id="ticketLeadAssigneeId"><option value="">Select a technician</option></select></div>
+                        <div id="ticketLeadAssigneeResolverGroup" class="gorelo-assignment-dynamic hidden">
+                          <div class="form-field"><label for="ticketLeadAssigneeResolverField">Extraction field</label><select id="ticketLeadAssigneeResolverField"><option value="">Add an extraction field first</option></select></div>
+                          <div class="form-field"><label for="ticketLeadAssigneeResolverMatchBy">Match by</label><select id="ticketLeadAssigneeResolverMatchBy"><option value="email">Email</option><option value="name">Name</option><option value="id">Gorelo ID</option></select></div>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
                   <div class="form-field"><label for="ticketCcContactIds">CC contacts</label><select id="ticketCcContactIds" multiple size="4" aria-describedby="ticketCcHelp"></select><span id="ticketCcHelp" class="field-help">Use Ctrl/Cmd to select more than one.</span></div>
-                  <div class="form-field"><label for="ticketLeadAssigneeId">Lead assignee</label><select id="ticketLeadAssigneeId"><option value="">No lead assignee</option></select></div>
                   <div class="form-field"><label for="ticketAssistingIds">Assisting assignees</label><select id="ticketAssistingIds" multiple size="4"></select></div>
                   <div class="form-field"><label for="ticketWatcherIds">Watchers</label><select id="ticketWatcherIds" multiple size="4"></select></div>
                   <div class="form-field"><label for="ticketTagIds">Tags</label><select id="ticketTagIds" multiple size="4"></select></div>
-                  <div class="form-field"><label for="ticketAgentAssetIds">Agent assets</label><select id="ticketAgentAssetIds" multiple size="4"></select><span class="field-help">Assets are loaded from the complete bounded Gorelo catalog for the selected client.</span></div>
                   <div class="gorelo-flags">
                     <div class="inline-check"><input id="ticketSendCreatedEmail" type="checkbox"><label for="ticketSendCreatedEmail">Send Gorelo ticket-created email</label></div>
                     <div class="inline-check"><input id="ticketIsUnread" type="checkbox" checked><label for="ticketIsUnread">Mark ticket unread</label></div>
@@ -1416,6 +1458,11 @@ const ADMIN_HTML = String.raw`<!doctype html>
     const mappedActionTypes = new Set(["forward_webhook","create_ticket","create_alert"]);
     const goreloActionTypes = new Set(["create_ticket","create_alert"]);
     const goreloGlobalCatalogKinds = ["groups","ticket-statuses","ticket-tags","ticket-types","users","agent-assets"];
+    const goreloAssignmentDefinitions = [
+      {key:"contact",label:"Customer contact",modeId:"ticketContactMode",fixedGroupId:"ticketContactFixedGroup",fixedId:"ticketContactId",resolverGroupId:"ticketContactResolverGroup",resolverFieldId:"ticketContactResolverField",resolverMatchId:"ticketContactResolverMatchBy",resolverProperty:"contactResolver",fixedProperty:"contactId",fixedNeedsClient:true,matchBy:new Set(["email","alias","name","id"])},
+      {key:"agentAsset",label:"Managed device",modeId:"ticketAgentAssetMode",fixedGroupId:"ticketAgentAssetFixedGroup",fixedId:"ticketAgentAssetIds",resolverGroupId:"ticketAgentAssetResolverGroup",resolverFieldId:"ticketAgentAssetResolverField",resolverMatchId:"ticketAgentAssetResolverMatchBy",resolverProperty:"agentAssetResolver",fixedProperty:"agentAssetIds",fixedNeedsClient:true,matchBy:new Set(["name","serial_number","id"])},
+      {key:"leadAssignee",label:"Gorelo technician",modeId:"ticketLeadAssigneeMode",fixedGroupId:"ticketLeadAssigneeFixedGroup",fixedId:"ticketLeadAssigneeId",resolverGroupId:"ticketLeadAssigneeResolverGroup",resolverFieldId:"ticketLeadAssigneeResolverField",resolverMatchId:"ticketLeadAssigneeResolverMatchBy",resolverProperty:"leadAssigneeResolver",fixedProperty:"leadAssigneeId",fixedNeedsClient:false,matchBy:new Set(["email","name","id"])}
+    ];
     const operatorLabels = { equals:"equals",not_equals:"does not equal",contains:"contains",not_contains:"does not contain",starts_with:"starts with",ends_with:"ends with",wildcard:"matches wildcard",in:"is one of",gte:"is at least",lte:"is at most",exists:"exists" };
     const contentFields = new Set(["body_text","attachment_name","has_attachments"]);
     const existsFields = new Set(["header","body_text","attachment_name","has_attachments"]);
@@ -1705,7 +1752,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     }
     function parseGoreloCatalogResponse(data,kind,clientId) {
       const catalog=data&&data.catalog;
-      if (!catalog||catalog.kind!==kind||!Array.isArray(catalog.items)||!catalog.items.every((item)=>validGoreloCatalogItem(kind,item))||!Number.isSafeInteger(catalog.totalCount)||catalog.totalCount<catalog.items.length||(clientId!==undefined&&catalog.clientId!==clientId)) throw new Error("The Worker returned an invalid "+titleCase(kind)+" catalog.");
+      if (!catalog||catalog.kind!==kind||!Array.isArray(catalog.items)||!catalog.items.every((item)=>validGoreloCatalogItem(kind,item))||!Number.isSafeInteger(catalog.totalCount)||catalog.totalCount!==catalog.items.length||catalog.pagination?.hasMore===true||(clientId!==undefined&&catalog.clientId!==clientId)) throw new Error("The Worker returned an invalid "+titleCase(kind)+" catalog.");
       return catalog;
     }
     async function loadGoreloActionCatalog(kind,clientId,force=false) {
@@ -1731,25 +1778,35 @@ const ADMIN_HTML = String.raw`<!doctype html>
       const select=byId("goreloClientId"); const current=select.value; const preferred=goreloActionPreferences?.clientId===undefined?current:String(goreloActionPreferences.clientId); const active=goreloClients.filter((client)=>!client.stale); select.textContent=""; const prompt=node("option",active.length?"Select an imported client":"Import current clients in Setup first"); prompt.value=""; select.append(prompt);
       active.forEach((client)=>select.append(makeOption(String(client.id),client.name+" · #"+client.id))); if (preferred&&!active.some((client)=>String(client.id)===preferred)) select.append(makeOption(preferred,"Saved client #"+preferred+" · not current")); select.value=preferred; select.disabled=!isGoreloActionType()||byId("goreloClientMode").value!=="fixed"; select.required=isGoreloActionType()&&byId("goreloClientMode").value==="fixed";
     }
+    function goreloExtractionKeys() {
+      const keys=[]; const seen=new Set(); [...byId("webhookFields").children].forEach((row)=>{ const key=row.querySelector('[data-role="webhook-key"]')?.value.trim(); if (key&&!seen.has(key)) { seen.add(key); keys.push(key); } }); return keys;
+    }
+    function populateGoreloResolverField(select,preferred) {
+      const wanted=preferred===undefined?select.value:preferred; const keys=goreloExtractionKeys(); select.textContent=""; const prompt=node("option",keys.length?"Select an extraction field":"Add an extraction field first"); prompt.value=""; select.append(prompt); keys.forEach((key)=>select.append(makeOption(key,key))); select.value=keys.includes(wanted)?wanted:"";
+    }
+    function populateGoreloAssignmentOptions(preferences=goreloActionPreferences) {
+      goreloAssignmentDefinitions.forEach((definition)=>populateGoreloResolverField(byId(definition.resolverFieldId),preferences?.[definition.resolverProperty]?.field)); updateGoreloAssignmentControls();
+    }
     function populateGoreloIdentityOptions(preferred) {
-      const select=byId("goreloClientIdentityField"); const wanted=preferred===undefined?select.value:preferred; const keys=[]; const seen=new Set(); [...byId("webhookFields").children].forEach((row)=>{ const key=row.querySelector('[data-role="webhook-key"]')?.value.trim(); if (key&&!seen.has(key)) { seen.add(key); keys.push(key); } });
+      const select=byId("goreloClientIdentityField"); const wanted=preferred===undefined?select.value:preferred; const keys=goreloExtractionKeys();
       select.textContent=""; const prompt=node("option",keys.length?"Select an extraction field":"Add an extraction field first"); prompt.value=""; select.append(prompt); keys.forEach((key)=>select.append(makeOption(key,key))); select.value=keys.includes(wanted)?wanted:"";
+      populateGoreloAssignmentOptions();
     }
     function populateGoreloCatalogControls() {
       const preferences=goreloActionPreferences; populateGoreloClientSelect();
       populateCatalogSelect("ticketStatusId","ticket-statuses",{prompt:"Select a status",preferred:preferences?[preferences.statusId]:undefined});
       populateCatalogSelect("ticketGroupId","groups",{prompt:"Select a group",preferred:preferences?[preferences.groupId]:undefined});
       populateCatalogSelect("ticketTypeId","ticket-types",{prompt:"Select a ticket type",preferred:preferences?[preferences.typeId]:undefined});
-      populateCatalogSelect("ticketLeadAssigneeId","users",{prompt:"No lead assignee",preferred:preferences?[preferences.leadAssigneeId]:undefined});
+      populateCatalogSelect("ticketLeadAssigneeId","users",{prompt:"Select a technician",preferred:preferences&&!preferences.leadAssigneeResolver?[preferences.leadAssigneeId]:preferences?[]:undefined});
       populateCatalogSelect("ticketAssistingIds","users",{emptyLabel:"No users returned",preferred:preferences?preferences.assistingAssigneeIds||[]:undefined});
       populateCatalogSelect("ticketWatcherIds","users",{emptyLabel:"No users returned",preferred:preferences?preferences.watcherIds||[]:undefined});
       populateCatalogSelect("ticketTagIds","ticket-tags",{emptyLabel:"No tags returned",preferred:preferences?preferences.tagIds||[]:undefined});
-      const clientId=byId("goreloClientMode").value==="fixed"?Number(byId("goreloClientId").value||0):0; const assets=catalogItems("agent-assets").filter((asset)=>clientId?asset.clientId===null||asset.clientId===clientId:false);
-      populateCatalogSelect("ticketAgentAssetIds","agent-assets",{items:assets,emptyLabel:clientId?"No matching agent assets":"Choose a fixed client to select assets",preferred:preferences?preferences.agentAssetIds||[]:undefined});
+      const clientId=byId("goreloClientMode").value==="fixed"?Number(byId("goreloClientId").value||0):0; const assets=catalogItems("agent-assets").filter((asset)=>clientId?asset.clientId===clientId:false);
+      populateCatalogSelect("ticketAgentAssetIds","agent-assets",{items:assets,emptyLabel:clientId?"No matching agent assets":"Choose a fixed client to select assets",preferred:preferences&&!preferences.agentAssetResolver?preferences.agentAssetIds||[]:preferences?[]:undefined});
       populateCatalogSelect("ticketLocationId","locations",{clientId,prompt:"No location",preferred:preferences?[preferences.locationId]:undefined});
-      populateCatalogSelect("ticketContactId","contacts",{clientId,prompt:"No contact",preferred:preferences?[preferences.contactId]:undefined});
+      populateCatalogSelect("ticketContactId","contacts",{clientId,prompt:"Select a contact",preferred:preferences&&!preferences.contactResolver?[preferences.contactId]:preferences?[]:undefined});
       populateCatalogSelect("ticketCcContactIds","contacts",{clientId,emptyLabel:clientId?"No contacts returned":"Choose a fixed client to select contacts",preferred:preferences?preferences.ccContactIds||[]:undefined});
-      updateGoreloClientLinkage();
+      populateGoreloAssignmentOptions(preferences); updateGoreloClientLinkage();
     }
     function updateGoreloCatalogStatus(failures=[]) {
       const status=byId("goreloCatalogStatus"); status.classList.toggle("warning",failures.length>0||!setupState?.gorelo?.configured); if (!setupState?.gorelo?.configured) { status.textContent="Configure and verify the Gorelo API in Setup before saving this action."; return; }
@@ -1762,7 +1819,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     }
     async function ensureGoreloActionCatalogs(force=false) {
       if (!isGoreloActionType()) return; if (!setupState?.gorelo?.configured) { populateGoreloCatalogControls(); updateGoreloCatalogStatus(); return; }
-      const kinds=byId("actionType").value==="create_ticket"?goreloGlobalCatalogKinds:[]; const tasks=[loadClientDirectory(force),...kinds.map((kind)=>loadGoreloActionCatalog(kind,undefined,force))]; const settled=await Promise.allSettled(tasks); populateGoreloCatalogControls(); const failures=settled.flatMap((result,index)=>result.status==="rejected"?[index===0?"clients":kinds[index-1]]:[]); updateGoreloCatalogStatus(failures); if (!failures.length) await ensureGoreloClientCatalogs(force);
+      const kinds=byId("actionType").value==="create_ticket"?[...goreloGlobalCatalogKinds]:[]; const tasks=[loadClientDirectory(force),...kinds.map((kind)=>loadGoreloActionCatalog(kind,undefined,force))]; const settled=await Promise.allSettled(tasks); populateGoreloCatalogControls(); const failures=settled.flatMap((result,index)=>result.status==="rejected"?[index===0?"clients":kinds[index-1]]:[]); updateGoreloCatalogStatus(failures); if (!failures.length) await ensureGoreloClientCatalogs(force);
     }
     function operatorsFor(field) {
       const kind=fieldMap[field].kind;
@@ -1920,7 +1977,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     }
     function applyTrainerVariables() {
       clearError("trainerError"); if (!trainerCaptures.length) return; const captures=trainerCaptures.map((capture)=>({key:capture.key,field:deepCopy(capture.field)})); const replacementKeys=new Set(captures.map((capture)=>capture.key)); const rows=[...byId("webhookFields").children]; const retained=rows.filter((row)=>!replacementKeys.has(row.querySelector('[data-role="webhook-key"]')?.value.trim())); if (retained.length+captures.length>50) { showError("trainerError",new Error("This rule can contain at most 50 extraction fields.")); return; }
-      const webhookIdentity=byId("clientIdentityField").value; const goreloIdentity=byId("goreloClientIdentityField").value; rows.forEach((row)=>{ if (replacementKeys.has(row.querySelector('[data-role="webhook-key"]')?.value.trim())) row.remove(); }); captures.forEach((capture)=>addWebhookFieldRow(capture.field)); renumberWebhookFields(); updateClientIdentityOptions(webhookIdentity); populateGoreloIdentityOptions(goreloIdentity); editorDirty=true; const count=captures.length; closeTemplateTrainer(true); showToast(count+" "+(count===1?"variable is":"variables are")+" ready for this rule's Gorelo templates and webhooks.");
+      const webhookIdentity=byId("clientIdentityField").value; const goreloIdentity=byId("goreloClientIdentityField").value; const goreloAssignments=Object.fromEntries(goreloAssignmentDefinitions.map((definition)=>[definition.resolverProperty,{field:byId(definition.resolverFieldId).value}])); rows.forEach((row)=>{ if (replacementKeys.has(row.querySelector('[data-role="webhook-key"]')?.value.trim())) row.remove(); }); captures.forEach((capture)=>addWebhookFieldRow(capture.field)); renumberWebhookFields(); updateClientIdentityOptions(webhookIdentity); populateGoreloIdentityOptions(goreloIdentity); populateGoreloAssignmentOptions(goreloAssignments); editorDirty=true; const count=captures.length; closeTemplateTrainer(true); showToast(count+" "+(count===1?"variable is":"variables are")+" ready for this rule's Gorelo templates, assignments, and webhooks.");
     }
     function extractionControl(label,control,help) {
       const wrap=node("div",undefined,"form-field"); const visible=node("label",label); if (control.id) visible.htmlFor=control.id; wrap.append(visible,control); if (help) wrap.append(node("span",help,"field-help")); return wrap;
@@ -1965,11 +2022,20 @@ const ADMIN_HTML = String.raw`<!doctype html>
     function updateClientLinkageFields() {
       const isWebhook=byId("actionType").value==="forward_webhook"; const linked=isWebhook&&Boolean(byId("clientIdentityField").value); byId("webhookClientLinkage").classList.toggle("hidden",!isWebhook); byId("clientIdentityField").disabled=!isWebhook; byId("clientAliasScopeGroup").classList.toggle("hidden",!linked); byId("clientAliasScope").disabled=!linked; byId("clientAliasScope").required=linked;
     }
+    function updateGoreloAssignmentControls(resetUnavailable=false) {
+      const ticket=byId("actionType").value==="create_ticket"; const fixedClient=ticket&&byId("goreloClientMode").value==="fixed";
+      goreloAssignmentDefinitions.forEach((definition)=>{
+        const mode=byId(definition.modeId); const fixedOption=[...mode.options].find((option)=>option.value==="fixed"); const fixedAvailable=!definition.fixedNeedsClient||fixedClient; if (fixedOption) fixedOption.disabled=!fixedAvailable;
+        if (resetUnavailable&&mode.value==="fixed"&&!fixedAvailable) mode.value="none";
+        const value=ticket?mode.value:"none"; const fixed=value==="fixed"; const extracted=value==="extracted"; const fixedGroup=byId(definition.fixedGroupId); const fixedControl=byId(definition.fixedId); const resolverGroup=byId(definition.resolverGroupId); const resolverField=byId(definition.resolverFieldId); const resolverMatch=byId(definition.resolverMatchId);
+        mode.disabled=!ticket; fixedGroup.classList.toggle("hidden",!fixed); resolverGroup.classList.toggle("hidden",!extracted); fixedControl.disabled=!ticket||!fixed||!fixedAvailable; resolverField.disabled=!ticket||!extracted; resolverField.required=ticket&&extracted; resolverMatch.disabled=!ticket||!extracted; resolverMatch.required=ticket&&extracted;
+      });
+    }
     function updateGoreloClientLinkage() {
       const active=isGoreloActionType(); const fixed=active&&byId("goreloClientMode").value==="fixed"; const extracted=active&&!fixed;
       byId("goreloClientLinkage").classList.toggle("hidden",!active); byId("goreloFixedClientGroup").classList.toggle("hidden",!fixed); byId("goreloIdentityFieldGroup").classList.toggle("hidden",!extracted); byId("goreloAliasScopeGroup").classList.toggle("hidden",!extracted);
       byId("goreloClientMode").disabled=!active; byId("goreloClientId").disabled=!fixed; byId("goreloClientId").required=fixed; byId("goreloClientIdentityField").disabled=!extracted; byId("goreloClientIdentityField").required=extracted; byId("goreloClientAliasScope").disabled=!extracted; byId("goreloClientAliasScope").required=extracted;
-      const clientSpecific=fixed&&byId("actionType").value==="create_ticket"; ["ticketLocationId","ticketContactId","ticketCcContactIds","ticketAgentAssetIds"].forEach((id)=>{ byId(id).disabled=!clientSpecific; });
+      const clientSpecific=fixed&&byId("actionType").value==="create_ticket"; ["ticketLocationId","ticketCcContactIds"].forEach((id)=>{ byId(id).disabled=!clientSpecific; }); updateGoreloAssignmentControls();
     }
     function goreloTemplateTarget() {
       const ids=byId("actionType").value==="create_ticket"?["ticketTitleTemplate","ticketDescriptionTemplate","ticketCreatedByTemplate"]:byId("actionType").value==="create_alert"?["alertNameTemplate","alertResourceTemplate","alertDescriptionTemplate"]:[]; if (!ids.length) return null; if (lastGoreloTemplateTarget&&ids.includes(lastGoreloTemplateTarget.id)) return lastGoreloTemplateTarget; return byId(ids[0]);
@@ -1978,7 +2044,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       const target=goreloTemplateTarget(); if (!target||target.disabled) return; const value="{{"+key+"}}"; const start=Number.isInteger(target.selectionStart)?target.selectionStart:target.value.length; const end=Number.isInteger(target.selectionEnd)?target.selectionEnd:start; if (target.value.length-(end-start)+value.length>target.maxLength) { showToast("That template is already at its character limit.","error"); return; } target.setRangeText(value,start,end,"end"); lastGoreloTemplateTarget=target; target.dispatchEvent(new Event("input",{bubbles:true})); target.focus(); renderGoreloVariableBar();
     }
     function renderGoreloVariableBar() {
-      const chips=byId("goreloVariableChips"); chips.textContent=""; const keys=[]; const seen=new Set(); [...byId("webhookFields").children].forEach((row)=>{ const key=row.querySelector('[data-role="webhook-key"]')?.value.trim(); if (key&&!seen.has(key)&&isSafeTrainerKey(key)) { seen.add(key); keys.push(key); } }); const target=goreloTemplateTarget(); setText("goreloVariableTarget",target?"Inserts into "+goreloTemplateLabels[target.id]+".":"Focus a template field, then choose a token."); if (!keys.length) { chips.append(node("span","Teach or add an extraction field first.","field-help")); return; } keys.forEach((key)=>{ const button=node("button","{{"+key+"}}","variable-token"); button.type="button"; button.disabled=!target; button.setAttribute("aria-label","Insert {{"+key+"}} into "+(target?goreloTemplateLabels[target.id]:"a Gorelo template")); button.onclick=()=>insertGoreloVariable(key); chips.append(button); });
+      const chips=byId("goreloVariableChips"); chips.textContent=""; const keys=[]; const seen=new Set(); [...byId("webhookFields").children].forEach((row)=>{ const key=row.querySelector('[data-role="webhook-key"]')?.value.trim(); if (key&&!seen.has(key)&&isSafeTrainerKey(key)) { seen.add(key); keys.push(key); } }); const target=goreloTemplateTarget(); setText("goreloVariableTarget",target?"Inserts into "+goreloTemplateLabels[target.id]+". Assignment mappings are configured below.":"Learned variables are text until mapped to a template or assignment below."); if (!keys.length) { chips.append(node("span","Teach or add an extraction field first.","field-help")); return; } keys.forEach((key)=>{ const button=node("button","{{"+key+"}}","variable-token"); button.type="button"; button.disabled=!target; button.setAttribute("aria-label","Insert {{"+key+"}} into "+(target?goreloTemplateLabels[target.id]:"a Gorelo template")); button.onclick=()=>insertGoreloVariable(key); chips.append(button); });
     }
     function updateClientIdentityOptions(preferred) {
       const select=byId("clientIdentityField"); const wanted=preferred===undefined?select.value:preferred; const keys=[]; const seen=new Set();
@@ -2021,6 +2087,16 @@ const ADMIN_HTML = String.raw`<!doctype html>
       if (byId("goreloClientMode").value==="fixed") return {clientId:readPositiveGoreloId("goreloClientId","Imported client",true)};
       const clientIdentityField=byId("goreloClientIdentityField").value; if (!keys.has(clientIdentityField)) throw new Error("Choose an existing extraction field for Gorelo client resolution."); const clientAliasScope=byId("goreloClientAliasScope").value.trim()||"global"; if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(clientAliasScope)) throw new Error("Client alias scope must be a safe identifier such as global or vendor-a."); return {clientIdentityField,clientAliasScope};
     }
+    function collectGoreloAssignment(action,definition,keys) {
+      const mode=byId(definition.modeId).value; if (mode==="none") return;
+      if (mode==="fixed") {
+        if (definition.fixedNeedsClient&&byId("goreloClientMode").value!=="fixed") throw new Error(definition.label+" can only use a fixed record when the Gorelo client is fixed.");
+        if (definition.key==="agentAsset") { const ids=readGuidList(definition.fixedId,definition.label); if (!ids.length) throw new Error("Select at least one fixed managed device."); action[definition.fixedProperty]=ids; }
+        else { const id=readPositiveGoreloId(definition.fixedId,definition.label,true); action[definition.fixedProperty]=id; }
+        return;
+      }
+      if (mode!=="extracted") throw new Error("Choose a valid "+definition.label.toLowerCase()+" assignment mode."); const field=byId(definition.resolverFieldId).value; const matchBy=byId(definition.resolverMatchId).value; if (!keys.has(field)) throw new Error("Choose an existing extraction field for "+definition.label.toLowerCase()+" resolution."); if (!definition.matchBy.has(matchBy)) throw new Error("Choose a valid exact match method for "+definition.label.toLowerCase()+" resolution."); action[definition.resolverProperty]={field,matchBy};
+    }
     function assertGoreloActionReady(action) {
       if (!action||!goreloActionTypes.has(action.type)) return; if (!setupState?.gorelo?.configured) throw new Error("Configure and verify the Gorelo API in Setup before saving this action.");
       const imported=action.clientId===undefined?undefined:goreloClients.find((client)=>client.id===action.clientId); if (imported?.stale) throw new Error("Choose a current imported Gorelo client. Refresh or import the client directory if it changed.");
@@ -2031,8 +2107,9 @@ const ADMIN_HTML = String.raw`<!doctype html>
         action.titleTemplate=readTemplate("ticketTitleTemplate","Ticket title template",998,true,keys); const description=readTemplate("ticketDescriptionTemplate","Ticket description template",16000,false,keys); const createdBy=readTemplate("ticketCreatedByTemplate","Created by name template",320,false,keys); if (description) action.descriptionTemplate=description; if (createdBy) action.createdByNameTemplate=createdBy;
         action.statusId=readPositiveGoreloId("ticketStatusId","Status",true); action.groupId=readPositiveGoreloId("ticketGroupId","Group",true); action.typeId=readPositiveGoreloId("ticketTypeId","Ticket type",true);
         const priority=byId("ticketPriorityId").value; if (priority!=="") { const value=Number(priority); if (!Number.isInteger(value)||value<0||value>4) throw new Error("Ticket priority must be from 0 to 4."); action.priorityId=value; } const source=byId("ticketSourceId").value; if (source!=="") { const value=Number(source); if (!Number.isInteger(value)||value<1||value>6) throw new Error("Ticket source must be from 1 to 6."); action.sourceId=value; }
-        if (byId("goreloClientMode").value==="fixed") { const location=readPositiveGoreloId("ticketLocationId","Location"); const contact=readPositiveGoreloId("ticketContactId","Primary contact"); const cc=readGoreloIdList("ticketCcContactIds","CC contacts"); const assets=readGuidList("ticketAgentAssetIds","Agent assets"); if (location!==undefined) action.locationId=location; if (contact!==undefined) action.contactId=contact; if (cc.length) action.ccContactIds=cc; if (assets.length) action.agentAssetIds=assets; }
-        const lead=readPositiveGoreloId("ticketLeadAssigneeId","Lead assignee"); const assisting=readGoreloIdList("ticketAssistingIds","Assisting assignees"); const watchers=readGoreloIdList("ticketWatcherIds","Watchers"); const tags=readGoreloIdList("ticketTagIds","Tags"); if (lead!==undefined) action.leadAssigneeId=lead; if (assisting.length) action.assistingAssigneeIds=assisting; if (watchers.length) action.watcherIds=watchers; if (tags.length) action.tagIds=tags; action.sendTicketCreatedEmail=byId("ticketSendCreatedEmail").checked; action.isUnread=byId("ticketIsUnread").checked;
+        if (byId("goreloClientMode").value==="fixed") { const location=readPositiveGoreloId("ticketLocationId","Location"); const cc=readGoreloIdList("ticketCcContactIds","CC contacts"); if (location!==undefined) action.locationId=location; if (cc.length) action.ccContactIds=cc; }
+        goreloAssignmentDefinitions.forEach((definition)=>collectGoreloAssignment(action,definition,keys));
+        const assisting=readGoreloIdList("ticketAssistingIds","Assisting assignees"); const watchers=readGoreloIdList("ticketWatcherIds","Watchers"); const tags=readGoreloIdList("ticketTagIds","Tags"); if (assisting.length) action.assistingAssigneeIds=assisting; if (watchers.length) action.watcherIds=watchers; if (tags.length) action.tagIds=tags; action.sendTicketCreatedEmail=byId("ticketSendCreatedEmail").checked; action.isUnread=byId("ticketIsUnread").checked;
       } else if (type==="create_alert") {
         action.nameTemplate=readTemplate("alertNameTemplate","Alert name template",998,true,keys); action.resourceTemplate=readTemplate("alertResourceTemplate","Alert resource template",998,true,keys); const description=readTemplate("alertDescriptionTemplate","Alert description template",16000,false,keys); if (description) action.descriptionTemplate=description; const severity=Number(byId("alertSeverity").value); if (!Number.isInteger(severity)||severity<1||severity>4) throw new Error("Alert severity must be from 1 to 4."); action.severity=severity;
       } else throw new Error("Choose a supported Gorelo API action.");
@@ -2067,6 +2144,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     }
     function populateGoreloActionForm(action) {
       const direct=goreloActionTypes.has(action.type); ["goreloClientId","ticketStatusId","ticketGroupId","ticketTypeId","ticketLocationId","ticketContactId","ticketCcContactIds","ticketLeadAssigneeId","ticketAssistingIds","ticketWatcherIds","ticketTagIds","ticketAgentAssetIds"].forEach((id)=>{ [...byId(id).options].forEach((option)=>{ option.selected=false; }); }); goreloActionPreferences=direct?action:null; byId("goreloClientMode").value=direct&&action.clientIdentityField?"extracted":"fixed"; byId("goreloClientAliasScope").value=direct?action.clientAliasScope||"global":"global";
+      goreloAssignmentDefinitions.forEach((definition)=>{ const resolver=direct&&action.type==="create_ticket"?action[definition.resolverProperty]:undefined; const fixed=direct&&action.type==="create_ticket"?action[definition.fixedProperty]:undefined; byId(definition.modeId).value=resolver?"extracted":fixed!==undefined&&(!Array.isArray(fixed)||fixed.length)?"fixed":"none"; byId(definition.resolverMatchId).value=resolver&&definition.matchBy.has(resolver.matchBy)?resolver.matchBy:[...definition.matchBy][0]; });
       byId("ticketTitleTemplate").value=action.type==="create_ticket"?action.titleTemplate||"{{subject}}":"{{subject}}"; byId("ticketDescriptionTemplate").value=action.type==="create_ticket"?action.descriptionTemplate||"":""; byId("ticketCreatedByTemplate").value=action.type==="create_ticket"?action.createdByNameTemplate||"":""; byId("ticketPriorityId").value=action.type==="create_ticket"&&action.priorityId!==undefined?String(action.priorityId):""; byId("ticketSourceId").value=action.type==="create_ticket"&&action.sourceId!==undefined?String(action.sourceId):""; byId("ticketSendCreatedEmail").checked=action.type==="create_ticket"&&action.sendTicketCreatedEmail===true; byId("ticketIsUnread").checked=action.type!=="create_ticket"||action.isUnread!==false;
       byId("alertNameTemplate").value=action.type==="create_alert"?action.nameTemplate||"{{subject}}":"{{subject}}"; byId("alertResourceTemplate").value=action.type==="create_alert"?action.resourceTemplate||"{{resource}}":"{{resource}}"; byId("alertDescriptionTemplate").value=action.type==="create_alert"?action.descriptionTemplate||"":""; byId("alertSeverity").value=action.type==="create_alert"?String(action.severity??3):"3";
       populateGoreloCatalogControls(); populateGoreloIdentityOptions(direct?action.clientIdentityField||"":""); goreloActionPreferences=null; updateGoreloClientLinkage();
@@ -2175,13 +2253,38 @@ const ADMIN_HTML = String.raw`<!doctype html>
       return Object.entries(headers);
     }
     function auditObject(value) { return value!==null&&typeof value==="object"&&!Array.isArray(value); }
+    const goreloEntityResolutionMetadata = {
+      contact:{label:"Customer contact",matchBy:new Set(["email","alias","name","id"]),id:(value)=>Number.isSafeInteger(value)&&value>0},
+      agentAsset:{label:"Managed device",matchBy:new Set(["id","serial_number","name"]),id:(value)=>typeof value==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)},
+      leadAssignee:{label:"Gorelo technician",matchBy:new Set(["email","name","id"]),id:(value)=>Number.isSafeInteger(value)&&value>0}
+    };
+    const goreloEntityResolutionFailureLabels = {not_found:"No exact match",ambiguous:"Ambiguous exact match",invalid:"Invalid extracted value",catalog_unavailable:"Catalog unavailable"};
+    function safeGoreloEntityResolution(kind,value) {
+      const metadata=goreloEntityResolutionMetadata[kind]; if (!metadata||!auditObject(value)) return {status:"unavailable"}; const matchedBy=metadata.matchBy.has(value.matchedBy)?value.matchedBy:null;
+      if (value.status==="resolved"&&metadata.id(value.id)&&typeof value.name==="string"&&value.name.length>=1&&value.name.length<=512&&matchedBy) return {status:"resolved",id:value.id,name:value.name,matchedBy};
+      if (Object.hasOwn(goreloEntityResolutionFailureLabels,value.status)&&matchedBy) return {status:value.status,matchedBy}; return {status:"unavailable"};
+    }
+    function validGoreloEntityResolutions(value) {
+      if (value===undefined) return true; if (!auditObject(value)||!Object.keys(value).every((key)=>Object.hasOwn(goreloEntityResolutionMetadata,key)||key==="location")) return false;
+      for (const kind of Object.keys(goreloEntityResolutionMetadata)) { if (value[kind]!==undefined&&safeGoreloEntityResolution(kind,value[kind]).status==="unavailable") return false; }
+      if (value.location!==undefined) { const location=value.location; if (!auditObject(location)) return false; const derived=location.status==="derived"&&Number.isSafeInteger(location.id)&&location.id>0&&new Set(["contact","agent_asset","entities"]).has(location.source); const failed=new Set(["conflict","not_found","catalog_unavailable"]).has(location.status)&&location.matchedBy==="entity_locations"; if (!derived&&!failed) return false; }
+      return true;
+    }
+    function appendGoreloEntityResolutions(data,container) {
+      const resolutions=auditObject(data?.entityResolutions)?data.entityResolutions:null; if (!resolutions) return;
+      const entries=Object.keys(goreloEntityResolutionMetadata).filter((kind)=>Object.hasOwn(resolutions,kind)); const hasLocation=Object.hasOwn(resolutions,"location"); if (!entries.length&&!hasLocation) return;
+      const section=node("div",undefined,"delivery-subsection"); section.append(node("h6","Assignments & associations"));
+      entries.forEach((kind)=>{ const metadata=goreloEntityResolutionMetadata[kind]; const resolution=safeGoreloEntityResolution(kind,resolutions[kind]); const grid=node("div",undefined,"review-detail-grid"); grid.append(eventDetail("Association",metadata.label)); if (resolution.status==="resolved") grid.append(eventDetail("Resolution","Resolved"),eventDetail("Record",resolution.name),eventDetail("Gorelo ID",resolution.id),eventDetail("Matched by",titleCase(resolution.matchedBy))); else grid.append(eventDetail("Resolution",goreloEntityResolutionFailureLabels[resolution.status]||"Resolution details unavailable"),...(resolution.matchedBy?[eventDetail("Matched by",titleCase(resolution.matchedBy))]:[])); section.append(grid); });
+      if (hasLocation) { const location=resolutions.location; const derived=auditObject(location)&&location.status==="derived"&&Number.isSafeInteger(location.id)&&location.id>0&&new Set(["contact","agent_asset","entities"]).has(location.source); const failed=auditObject(location)&&new Set(["conflict","not_found","catalog_unavailable"]).has(location.status)&&location.matchedBy==="entity_locations"; const grid=node("div",undefined,"review-detail-grid"); grid.append(eventDetail("Association","Location")); if (derived) grid.append(eventDetail("Resolution","Derived"),eventDetail("Gorelo ID",location.id),eventDetail("Source",location.source==="agent_asset"?"Managed device":titleCase(location.source))); else if (failed) { const labels={conflict:"Resolved entities have conflicting locations",not_found:"No shared entity location",catalog_unavailable:"Location catalog unavailable"}; grid.append(eventDetail("Resolution",labels[location.status])); } else grid.append(eventDetail("Resolution","Resolution details unavailable")); section.append(grid); }
+      container.append(section);
+    }
     function optionalAuditText(value,maximum) { return value===undefined||(typeof value==="string"&&value.length<=maximum); }
     function validDeliveryAttempt(attempt) {
       return auditObject(attempt)&&Number.isSafeInteger(attempt.attemptNumber)&&attempt.attemptNumber>=1&&deliveryAttemptOutcomes.has(attempt.outcome)&&(attempt.httpStatus===undefined||(Number.isInteger(attempt.httpStatus)&&attempt.httpStatus>=100&&attempt.httpStatus<=599))&&optionalAuditText(attempt.safeError,2000)&&typeof attempt.startedAt==="string"&&attempt.startedAt.length<=100&&typeof attempt.endedAt==="string"&&attempt.endedAt.length<=100;
     }
     function validDeliveryData(data) {
       if (!auditObject(data)) return false; if (data.variables!==undefined) { if (!auditObject(data.variables)) return false; const entries=Object.entries(data.variables); if (entries.length>50||!entries.every(([key,value])=>/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(key)&&typeof value==="string"&&value.length<=4000)) return false; }
-      if (data.goreloClient!==undefined) { const client=data.goreloClient; if (!auditObject(client)||!Number.isSafeInteger(client.id)||client.id<=0||typeof client.name!=="string"||client.name.length>512||typeof client.matchedBy!=="string"||client.matchedBy.length>128) return false; } return true;
+      if (data.goreloClient!==undefined) { const client=data.goreloClient; if (!auditObject(client)||!Number.isSafeInteger(client.id)||client.id<=0||typeof client.name!=="string"||client.name.length>512||typeof client.matchedBy!=="string"||client.matchedBy.length>128) return false; } return validGoreloEntityResolutions(data.entityResolutions);
     }
     function validPositiveAuditId(value) { return Number.isSafeInteger(value)&&value>0; }
     function validPositiveAuditIds(value) { return Array.isArray(value)&&value.length<=100&&value.every(validPositiveAuditId)&&new Set(value).size===value.length; }
@@ -2215,6 +2318,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
         const data=delivery.payloadSnapshot.data; const variables=auditObject(data?.variables)?Object.entries(data.variables).sort(([left],[right])=>left.localeCompare(right)):[];
         if (data?.variables!==undefined) { const values=node("div",undefined,"delivery-subsection"); values.append(node("h6","Extracted variables")); if (variables.length) { const variableList=node("dl",undefined,"variable-list"); variables.forEach(([key,value])=>{ const item=node("div",undefined,"variable-item"); item.append(node("dt",key),node("dd",value)); variableList.append(item); }); values.append(variableList); } else values.append(node("p","No variables were extracted.","retention-note")); card.append(values); }
         if (auditObject(data?.goreloClient)) { const client=data.goreloClient; const linkage=node("div",undefined,"delivery-subsection"); linkage.append(node("h6","Resolved Gorelo client")); const grid=node("div",undefined,"review-detail-grid"); grid.append(eventDetail("Client",client.name),eventDetail("Gorelo ID",client.id),eventDetail("Matched by",titleCase(client.matchedBy))); linkage.append(grid); card.append(linkage); }
+        appendGoreloEntityResolutions(data,card);
         if (delivery.actionType==="create_ticket"||delivery.actionType==="create_alert") { const payload=delivery.payloadSnapshot; const requestSection=node("div",undefined,"delivery-subsection"); requestSection.append(node("h6","Prepared Gorelo request")); const metadata=node("div",undefined,"review-detail-grid"); metadata.append(eventDetail("API region",String(payload.region).toUpperCase()),eventDetail("Snapshot schema",payload.schemaVersion)); requestSection.append(metadata); if (payload.request===null) requestSection.append(node("p","No API request was sent because preparation failed before delivery.","retention-note")); else { const requestGrid=node("div",undefined,"review-detail-grid"); Object.entries(payload.request).forEach(([key,value])=>requestGrid.append(eventDetail(goreloRequestLabel(key),Array.isArray(value)?value.join(", "):value))); requestSection.append(requestGrid); } card.append(requestSection); }
         const attempts=node("div",undefined,"delivery-subsection"); attempts.append(node("h6","Attempt history")); if (delivery.attemptHistory.length) { const attemptList=node("ol",undefined,"attempt-list"); delivery.attemptHistory.forEach((attempt)=>{ const item=node("li",undefined,"attempt-item"); const status=attempt.httpStatus===undefined?"No HTTP status":"HTTP "+attempt.httpStatus; item.append(node("strong","Attempt "+attempt.attemptNumber+" · "+titleCase(attempt.outcome)+" · "+status),node("time",formatDate(attempt.startedAt)+" → "+formatDate(attempt.endedAt))); if (attempt.safeError) item.append(node("p",attempt.safeError)); attemptList.append(item); }); attempts.append(attemptList); } else attempts.append(node("p","No delivery attempts have been recorded yet.","retention-note")); card.append(attempts); list.append(card);
       });
@@ -2535,8 +2639,9 @@ const ADMIN_HTML = String.raw`<!doctype html>
     function renderTestFailure() { renderTestStatus("has-error","warning","Evaluation failed","Check the message form error, then try again."); }
     function renderGoreloDryRunPreview(result,container) {
       const preview=result.goreloPreview; if (!auditObject(preview)) return; const section=node("section",undefined,"delivery-subsection"); section.append(node("h4","Structured Gorelo preview"),node("p","Non-mutating evaluation: no Gorelo API request was sent, no ticket or alert was created, and the original email was not forwarded.","preview-note"));
-      const status=node("div",undefined,"review-detail-grid"); status.append(eventDetail("API action",preview.actionType==="create_ticket"?"Create ticket":"Create alert")); if (preview.preflightError) { const labels={extraction_failed:"Required field extraction failed",client_resolution_failed:"Client resolution failed",mapping_failed:"Template mapping failed"}; status.append(eventDetail("Preflight",labels[preview.preflightError]||"Preparation failed")); } else status.append(eventDetail("Preflight","Ready")); section.append(status);
+      const status=node("div",undefined,"review-detail-grid"); status.append(eventDetail("API action",preview.actionType==="create_ticket"?"Create ticket":"Create alert")); if (preview.preflightError) { const labels={extraction_failed:"Required field extraction failed",client_resolution_failed:"Client resolution failed",entity_resolution_failed:"Assignment or association resolution failed",mapping_failed:"Template mapping failed"}; status.append(eventDetail("Preflight",labels[preview.preflightError]||"Preparation failed")); } else status.append(eventDetail("Preflight","Ready")); section.append(status);
       const data=auditObject(preview.data)?preview.data:{}; if (auditObject(data.goreloClient)) { const client=data.goreloClient; const clientGrid=node("div",undefined,"review-detail-grid"); clientGrid.append(eventDetail("Resolved client",client.name),eventDetail("Gorelo ID",client.id),eventDetail("Matched by",titleCase(client.matchedBy))); section.append(clientGrid); }
+      appendGoreloEntityResolutions(data,section);
       if (auditObject(data.variables)) { const details=node("details",undefined,"raw-result"); details.append(node("summary","View extracted variables"),node("pre",JSON.stringify(data.variables,null,2))); section.append(details); }
       if (auditObject(preview.request)) { const request=node("details",undefined,"raw-result"); request.open=true; request.append(node("summary","Prepared credential-free API request"),node("pre",JSON.stringify(preview.request,null,2))); section.append(request); } else section.append(node("p","No API request could be prepared. Correct the preflight issue before enabling this rule.","retention-note")); container.append(section);
     }
@@ -3066,8 +3171,9 @@ const ADMIN_HTML = String.raw`<!doctype html>
     byId("teachParser").onclick=(event)=>openTemplateTrainer(event.currentTarget); byId("addWebhookField").onclick=()=>{ addWebhookFieldRow(); editorDirty=true; }; byId("ruleWebhookDestination").onchange=()=>{ webhookActionDestinationPreference=byId("ruleWebhookDestination").value; editorDirty=true; };
     byId("refreshRuleWebhooks").onclick=()=>runBusy(byId("refreshRuleWebhooks"),"Refreshing…",async()=>{ await ensureWebhookActionDestinations(true); if (webhooksLoaded) showToast("Webhook destinations refreshed"); });
     byId("clientIdentityField").onchange=()=>{ updateClientLinkageFields(); editorDirty=true; };
-    byId("goreloClientMode").onchange=()=>{ populateGoreloCatalogControls(); updateGoreloClientLinkage(); if (byId("goreloClientMode").value==="fixed") void ensureGoreloClientCatalogs(); editorDirty=true; };
+    byId("goreloClientMode").onchange=()=>{ updateGoreloAssignmentControls(true); populateGoreloCatalogControls(); updateGoreloClientLinkage(); if (byId("goreloClientMode").value==="fixed") void ensureGoreloClientCatalogs(); editorDirty=true; };
     byId("goreloClientId").onchange=()=>{ ["ticketLocationId","ticketContactId","ticketCcContactIds","ticketAgentAssetIds"].forEach((id)=>{ [...byId(id).options].forEach((option)=>{ option.selected=false; }); }); populateGoreloCatalogControls(); void ensureGoreloClientCatalogs(); editorDirty=true; }; byId("goreloClientIdentityField").onchange=()=>{ updateGoreloClientLinkage(); editorDirty=true; }; byId("goreloClientAliasScope").oninput=()=>{ editorDirty=true; };
+    goreloAssignmentDefinitions.forEach((definition)=>{ byId(definition.modeId).onchange=()=>{ updateGoreloAssignmentControls(); editorDirty=true; }; });
     byId("refreshGoreloCatalogs").onclick=()=>runBusy(byId("refreshGoreloCatalogs"),"Refreshing…",async()=>{ await ensureGoreloActionCatalogs(true); showToast("Gorelo clients and catalogs refreshed"); });
     byId("goreloActionConfig").addEventListener("focusin",(event)=>{ if (event.target&&Object.hasOwn(goreloTemplateLabels,event.target.id)) { lastGoreloTemplateTarget=event.target; renderGoreloVariableBar(); } });
     byId("ruleForm").addEventListener("input",()=>{ editorDirty=true; }); byId("ruleForm").addEventListener("change",()=>{ editorDirty=true; }); byId("ruleJson").addEventListener("input",()=>{ editorDirty=true; });

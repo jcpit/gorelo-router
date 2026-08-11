@@ -745,14 +745,16 @@ describe("Gorelo integration API", () => {
   it("requires client scoping for contact and location catalogs", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const response = await handleFetch(
-      request("/api/v1/integrations/gorelo/catalogs/contacts"),
-      environment(),
-    );
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toMatchObject({
-      error: { details: { code: "client_required" } },
-    });
+    for (const kind of ["contacts", "locations"]) {
+      const response = await handleFetch(
+        request(`/api/v1/integrations/gorelo/catalogs/${kind}`),
+        environment(),
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { details: { code: "client_required" } },
+      });
+    }
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -790,6 +792,42 @@ describe("Gorelo integration API", () => {
         items: [{ id: firstId }, { id: secondId }],
         totalCount: 2,
         pagination: { nextCursor: null, hasMore: false },
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails explicitly when a complete catalog cannot fit in the safe cache", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const secondPage = new URL(String(input)).searchParams.has("cursor");
+      const pageSize = secondPage ? 100 : 200;
+      const offset = secondPage ? 200 : 0;
+      return Response.json({
+        data: Array.from({ length: pageSize }, (_, index) => ({
+          id: `8911dad4-32b1-4a9d-a0df-${String(offset + index + 1).padStart(12, "0")}`,
+          name: "n".repeat(512),
+          displayName: "d".repeat(512),
+          serialNo: "s".repeat(512),
+          clientId: 42,
+          status: { name: "a".repeat(256) },
+        })),
+        totalCount: 300,
+        nextCursor: secondPage ? null : "oversized-page-2",
+        previousCursor: secondPage ? "oversized-page-1" : null,
+        hasMore: !secondPage,
+        hasPrevious: secondPage,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleFetch(
+      request("/api/v1/integrations/gorelo/catalogs/agent-assets"),
+      environment(),
+    );
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        details: { code: "catalog_limit", stage: "agent-assets" },
       },
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);

@@ -53,7 +53,10 @@ import {
   inferExtractionTemplate,
   TemplateInferenceError,
 } from "./template-inference";
-import { prepareGoreloAction } from "./gorelo-action";
+import {
+  assertGoreloEntityResolutionCatalog,
+  prepareGoreloAction,
+} from "./gorelo-action";
 import { adminThemeResponse } from "./theme";
 import {
   getGoreloCatalog,
@@ -639,6 +642,20 @@ function requireCatalogId(
   return item;
 }
 
+function requireEntityResolutionCatalog(
+  kind: "contacts" | "users" | "agent-assets",
+  catalog: Awaited<ReturnType<typeof getGoreloCatalog>>,
+): void {
+  try {
+    assertGoreloEntityResolutionCatalog(kind, catalog);
+  } catch {
+    throw new HttpError(
+      409,
+      `The current Gorelo ${kind} catalog is unavailable for dynamic resolution; refresh the catalogs and try again`,
+    );
+  }
+}
+
 async function validatePersistedRuleAction(
   env: Env,
   action: RuleAction,
@@ -738,9 +755,29 @@ async function validatePersistedRuleAction(
     ...(action.assistingAssigneeIds ?? []),
     ...(action.watcherIds ?? []),
   ];
-  if (userIds.length) {
+  if (userIds.length || action.leadAssigneeResolver) {
     const users = await getGoreloCatalog(env, config, "users");
     for (const id of userIds) requireCatalogId(users.items, id, "technician");
+    if (action.leadAssigneeResolver) {
+      requireEntityResolutionCatalog("users", users);
+    }
+  }
+
+  if (action.contactResolver && action.clientId !== undefined) {
+    const contacts = await getGoreloCatalog(env, config, "contacts", {
+      clientId: action.clientId,
+    });
+    if (contacts.clientId !== action.clientId) {
+      throw new HttpError(
+        409,
+        "The current Gorelo contacts catalog does not match the selected client; refresh the catalogs and try again",
+      );
+    }
+    requireEntityResolutionCatalog("contacts", contacts);
+  }
+  if (action.agentAssetResolver) {
+    const assets = await getGoreloCatalog(env, config, "agent-assets");
+    requireEntityResolutionCatalog("agent-assets", assets);
   }
 
   if (action.clientId === undefined) return;
@@ -2221,7 +2258,15 @@ async function handleProtectedApi(
       }
     }
     const goreloPreview = decision.gorelo
-      ? await prepareGoreloAction(env.DB, suppliedFacts, decision.gorelo.action)
+      ? await prepareGoreloAction(
+          env.DB,
+          suppliedFacts,
+          decision.gorelo.action,
+          {
+            loadCatalog: (kind, options) =>
+              getGoreloCatalog(env, config, kind, options),
+          },
+        )
       : undefined;
     return json({
       decision,

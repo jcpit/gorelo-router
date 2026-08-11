@@ -345,6 +345,35 @@ describe("durable Gorelo create orchestration", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("records entity resolution failures as a fixed audit-safe category", async () => {
+    const db = database();
+    await addEvent(db, "event-entity-preflight");
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await executeGoreloDelivery(environment(db), configured(), {
+      eventId: "event-entity-preflight",
+      actionIndex: 0,
+      actionType: "create_ticket",
+      data: {
+        variables: {},
+        entityResolutions: {
+          contact: { status: "ambiguous", matchedBy: "email" },
+        },
+      },
+      preflightError: "entity_resolution_failed",
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      delivery: {
+        state: "failed",
+        safeError: "Gorelo ticket association resolution failed",
+      },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it.each([
     [400, "Gorelo rejected the create request"],
     [401, "Gorelo API authorization failed"],

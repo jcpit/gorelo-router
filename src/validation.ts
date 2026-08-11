@@ -446,6 +446,27 @@ const uniqueGoreloGuidList = z
     { message: "Gorelo asset IDs must be unique" },
   );
 
+const contactResolverSchema = z
+  .object({
+    field: z.string().min(1).max(64).regex(safeIdentifier),
+    matchBy: z.enum(["email", "alias", "name", "id"]),
+  })
+  .strict();
+
+const leadAssigneeResolverSchema = z
+  .object({
+    field: z.string().min(1).max(64).regex(safeIdentifier),
+    matchBy: z.enum(["email", "name", "id"]),
+  })
+  .strict();
+
+const agentAssetResolverSchema = z
+  .object({
+    field: z.string().min(1).max(64).regex(safeIdentifier),
+    matchBy: z.enum(["id", "serial_number", "name"]),
+  })
+  .strict();
+
 function boundedTemplate(maximum: number, allowEmpty = false) {
   let schema = z.string().max(maximum);
   if (!allowEmpty) schema = schema.min(1);
@@ -571,12 +592,15 @@ const createTicketActionSchema = z
     sourceId: z.number().int().min(1).max(6).optional(),
     locationId: positiveGoreloId.optional(),
     contactId: positiveGoreloId.optional(),
+    contactResolver: contactResolverSchema.optional(),
     ccContactIds: uniquePositiveGoreloIds.optional(),
     leadAssigneeId: positiveGoreloId.optional(),
+    leadAssigneeResolver: leadAssigneeResolverSchema.optional(),
     assistingAssigneeIds: uniquePositiveGoreloIds.optional(),
     watcherIds: uniquePositiveGoreloIds.optional(),
     tagIds: uniquePositiveGoreloIds.optional(),
     agentAssetIds: uniqueGoreloGuidList.optional(),
+    agentAssetResolver: agentAssetResolverSchema.optional(),
     sendTicketCreatedEmail: z.boolean().default(false),
     isUnread: z.boolean().default(true),
   })
@@ -591,6 +615,48 @@ const createTicketActionSchema = z
       ],
       context,
     );
+    const keys = new Set(action.fields.map((field) => field.key));
+    for (const [path, resolver] of [
+      ["contactResolver", action.contactResolver],
+      ["leadAssigneeResolver", action.leadAssigneeResolver],
+      ["agentAssetResolver", action.agentAssetResolver],
+    ] as const) {
+      if (resolver && !keys.has(resolver.field)) {
+        context.addIssue({
+          code: "custom",
+          path: [path, "field"],
+          message: `${path}.field must reference an extraction field key`,
+        });
+      }
+    }
+    for (const [fixedPath, fixedValue, resolverPath, resolver] of [
+      [
+        "contactId",
+        action.contactId,
+        "contactResolver",
+        action.contactResolver,
+      ],
+      [
+        "leadAssigneeId",
+        action.leadAssigneeId,
+        "leadAssigneeResolver",
+        action.leadAssigneeResolver,
+      ],
+      [
+        "agentAssetIds",
+        action.agentAssetIds,
+        "agentAssetResolver",
+        action.agentAssetResolver,
+      ],
+    ] as const) {
+      if (fixedValue !== undefined && resolver !== undefined) {
+        context.addIssue({
+          code: "custom",
+          path: [resolverPath],
+          message: `${resolverPath} cannot be combined with ${fixedPath}`,
+        });
+      }
+    }
     if (
       action.clientIdentityField !== undefined &&
       (action.locationId !== undefined ||

@@ -128,6 +128,37 @@ describe("Gorelo catalog cache", () => {
     ).resolves.toBeDefined();
   });
 
+  it("does not let an older concurrent refresh replace a newer catalog", async () => {
+    const db = database();
+    await putGoreloCatalogCache(db, {
+      key: "users",
+      kind: "users",
+      payload: [{ id: 2, name: "Newer" }],
+      itemCount: 1,
+      fetchedAt: "2026-08-09T00:02:00.000Z",
+      expiresAt: "2026-08-09T00:12:00.000Z",
+    });
+    await putGoreloCatalogCache(db, {
+      key: "users",
+      kind: "users",
+      payload: [{ id: 1, name: "Older" }],
+      itemCount: 1,
+      fetchedAt: "2026-08-09T00:01:00.000Z",
+      expiresAt: "2026-08-09T00:11:00.000Z",
+    });
+
+    await expect(
+      getFreshGoreloCatalogCache(
+        db,
+        "users",
+        new Date("2026-08-09T00:03:00.000Z"),
+      ),
+    ).resolves.toMatchObject({
+      payload: [{ id: 2, name: "Newer" }],
+      fetchedAt: "2026-08-09T00:02:00.000Z",
+    });
+  });
+
   it("rejects invalid keys, timestamps, and oversized payloads", async () => {
     const db = database();
     expect(() => goreloCatalogCacheKey("../../contacts")).toThrow("kind");
