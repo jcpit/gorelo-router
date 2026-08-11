@@ -14,10 +14,10 @@ forward the original message.
 
 ![How Gorelo Router works](assets/gorelo-router-overview.png)
 
-This overview is based on the running Gorelo Router dashboard with synthetic
-demo rules and messages. You can also view the
-[unedited live dashboard capture](assets/gorelo-router-live.png). Neither image
-contains credentials or customer data.
+This overview is based on the running Gorelo Router dashboard. Live Rules,
+parser-trainer, and Setup captures appear beside the relevant instructions
+below. They use an isolated Docker dataset with reserved example addresses;
+none contains credentials or customer data.
 
 All addresses, hostnames, IDs, and tokens below are placeholders. Replace them
 only in your own deployment. Never put a real credential in a rule, Wrangler
@@ -625,6 +625,11 @@ Enter `ADMIN_API_TOKEN` and select **Connect securely**. In **Setup**:
 4. Re-run readiness after enabling rules or changing bindings, mailboxes,
    imports, or webhook destinations.
 
+[![Gorelo Router Setup readiness and integration settings](assets/gorelo-router-setup.png)](assets/gorelo-router-setup.png)
+
+_Setup readiness and Gorelo integration settings. Select the image for the
+full-resolution capture._
+
 ### Configure named Gorelo mailboxes
 
 The first Setup load initializes one persistent mailbox named **Default Gorelo
@@ -680,6 +685,10 @@ ordering without changing the destination.
 9. Save, then use **Dry run** with the same recipient local part and confirm the
    rule name, forward action, destination, spam score, and decision reason.
 
+[![Live Gorelo Router Rules workspace with synthetic routing rules](assets/gorelo-router-live.png)](assets/gorelo-router-live.png)
+
+_Live Rules workspace with synthetic example data._
+
 The equivalent Advanced JSON is:
 
 ```json
@@ -734,6 +743,11 @@ The preferred path begins with a real retained message:
    map the variables into the webhook action. A ticket can also use a variable
    as an exact contact, lead-technician, or agent-asset resolver.
 9. Dry-run several representative messages before saving or enabling the rule.
+
+[![Gorelo Router email parser trainer learning customer, contact, and device fields](assets/gorelo-router-parser-trainer.png)](assets/gorelo-router-parser-trainer.png)
+
+_The parser trainer turns selected values into reusable variables without
+storing the sample with the rule._
 
 You can still start in Rules and use **Teach from sample** with pasted content
 or the current Dry-run sample.

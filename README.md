@@ -7,8 +7,9 @@ A deployable Cloudflare Email Worker that filters and routes inbound mail into G
 The diagram is based on the running Gorelo Router dashboard with synthetic demo
 data. Follow the **[end-user setup guide](docs/setup-guide.md)** for the Docker
 trial, Cloudflare deployment, Gorelo connection, first rule, and production
-security checks. An [unedited live dashboard capture](docs/assets/gorelo-router-live.png)
-is also included; neither image contains credentials or customer data.
+security checks. The live interface captures below use an isolated Docker
+dataset with reserved example addresses; none contains credentials or customer
+data.
 
 It includes:
 
@@ -479,6 +480,11 @@ docker build --target test --tag gorelo-router:test .
 
 `/admin` is a responsive Tabler-based operations console. The exact-pinned `@tabler/core` package is bundled and its CSS is served by the Worker at `/admin/tabler.css`; the dashboard does not depend on a public CDN. The bearer token remains in page memory and is not written to browser storage.
 
+[![Live Gorelo Router Rules workspace with synthetic routing rules](docs/assets/gorelo-router-live.png)](docs/assets/gorelo-router-live.png)
+
+_Live Rules workspace with synthetic example data. Select the image for the
+full-resolution capture._
+
 - **Rules** provides a guided rule builder, JSON mode, templates,
   enable/disable controls, deletion, named Gorelo mailbox selectors, a **Teach
   from sample** workflow, forward-plus-webhook mapping, and API-only Gorelo
@@ -508,6 +514,11 @@ docker build --target test --tag gorelo-router:test .
   webhook destinations. API keys and signing secrets are never collected by
   the UI.
 
+[![Gorelo Router Setup readiness and integration settings](docs/assets/gorelo-router-setup.png)](docs/assets/gorelo-router-setup.png)
+
+_Setup readiness and Gorelo integration settings. The example environment is
+intentionally forwarding-only and contains no API key._
+
 Message HTML is never inserted into the dashboard. Preview content is rendered as text, while raw RFC 5322 is returned only as an authenticated attachment with `nosniff`, a sandbox CSP, and no-store caching.
 
 ## Teach from a sample
@@ -525,6 +536,11 @@ values, apply the variables, then Dry run and save the rule. A pasted message or
 the current Dry-run sample can still be used when appropriate. This follows the
 approachable select-and-name workflow popularized by Zapier Email Parser, but
 it does not share or claim identical parsing internals.
+
+[![Gorelo Router email parser trainer learning customer, contact, and device fields](docs/assets/gorelo-router-parser-trainer.png)](docs/assets/gorelo-router-parser-trainer.png)
+
+_The live parser trainer learning reusable customer, contact, and device
+variables from a synthetic email._
 
 At runtime, each learned name becomes a bounded string in the rule's extracted variable map:
 
