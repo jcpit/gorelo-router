@@ -92,6 +92,8 @@ export interface SpamAssessment {
 
 export interface EvaluatedEmail extends EmailFacts {
   spam: SpamAssessment;
+  /** Bounded webhook variables when evaluating a webhook-origin rule. */
+  webhookVariables?: Readonly<Record<string, string>>;
 }
 
 export interface StoredRule extends RuleInput {

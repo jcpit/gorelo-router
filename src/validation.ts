@@ -14,6 +14,7 @@ export const conditionFields = [
   "spam_score",
   "message_size",
   "has_attachments",
+  "webhook",
 ] as const;
 
 export const conditionOperators = [
@@ -43,6 +44,7 @@ const conditionSchema = z
       ])
       .optional(),
     headerName: z.string().trim().min(1).max(100).optional(),
+    webhookKey: z.string().trim().min(1).max(64).regex(/^[A-Za-z_][A-Za-z0-9_]*$/).optional(),
     caseSensitive: z.boolean().default(false),
   })
   .strict()
@@ -60,6 +62,12 @@ const conditionSchema = z
         path: ["headerName"],
         message: "headerName is only valid when field is header",
       });
+    }
+    if (condition.field === "webhook" && !condition.webhookKey) {
+      context.addIssue({ code: "custom", path: ["webhookKey"], message: "webhookKey is required when field is webhook" });
+    }
+    if (condition.field !== "webhook" && condition.webhookKey !== undefined) {
+      context.addIssue({ code: "custom", path: ["webhookKey"], message: "webhookKey is only valid when field is webhook" });
     }
 
     if (condition.operator === "exists") {

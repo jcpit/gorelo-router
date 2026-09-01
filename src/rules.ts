@@ -47,6 +47,8 @@ function fieldValue(
       return email.rawSize;
     case "has_attachments":
       return email.hasAttachments;
+    case "webhook":
+      return email.webhookVariables?.[condition.webhookKey ?? ""] ?? "";
   }
 }
 

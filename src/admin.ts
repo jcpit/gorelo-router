@@ -1522,12 +1522,19 @@ const ADMIN_HTML = String.raw`<!doctype html>
       drop: { name:"Drop blocked sender", description:"High-confidence sender block", priority:10, enabled:true, match:"all", conditions:[{field:"from",operator:"equals",value:"spam@example.net",caseSensitive:false}], action:{type:"drop"} },
       quarantine: { name:"Quarantine executable attachments", description:"Hold messages containing executable-looking attachment names", priority:10, enabled:true, match:"all", conditions:[{field:"attachment_name",operator:"ends_with",value:".exe",caseSensitive:false}], action:{type:"quarantine"} }
     };
-    const fields = [
+    const baseConditionFields = [
       ["from","Envelope sender","string"],["from_domain","Sender domain","string"],["to","Envelope recipient","string"],["to_local_part","Recipient local part","string"],["to_domain","Recipient domain","string"],
       ["subject","Subject","string"],["header","Header","string"],["message_size","Message size","number"],["spam_score","Spam score","number"],
       ["body_text","Body text","string"],["attachment_name","Attachment name","string"],["has_attachments","Has attachments","boolean"]
     ];
-    const fieldMap = Object.fromEntries(fields.map((item) => [item[0],{label:item[1],kind:item[2]}]));
+    let fields = baseConditionFields.slice();
+    let fieldMap = Object.fromEntries(fields.map((item) => [item[0],{label:item[1],kind:item[2]}]));
+    let webhookConditionKeys = [];
+    function setWebhookConditionFields(keys) {
+      webhookConditionKeys=keys.filter((key)=>/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(key));
+      fields=baseConditionFields.concat(webhookConditionKeys.map((key)=>["webhook:"+key,"Webhook · "+key,"string"]));
+      fieldMap=Object.fromEntries(fields.map((item)=>[item[0],{label:item[1],kind:item[2]}]));
+    }
     const webhookExtractionSources = [
       ["from","Envelope sender"],["from_domain","Sender domain"],["to","Envelope recipient"],["to_local_part","Recipient local part"],["subject","Subject"],["body_text","Body text"],["message_id","Message ID"],["header","Header value"],["literal","Fixed text"]
     ];
@@ -1928,6 +1935,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
         const wrap=node("label",undefined,"inline-check"); wrap.append(node("span","Header name"));
         const input=node("input"); input.type="text"; input.dataset.role="header-name"; input.value=presetHeader||""; input.placeholder="X-Vendor-Alert"; input.required=true; wrap.append(input); meta.append(wrap);
       }
+      if (field.startsWith("webhook:")) meta.append(node("span","From selected webhook sample · "+field.slice(8),"mime-hint"));
       if (fieldMap[field].kind === "string" && operator !== "exists") {
         const label=node("label",undefined,"inline-check"); const check=node("input"); check.type="checkbox"; check.dataset.role="case"; check.checked=Boolean(presetCase); label.append(check,node("span","Case sensitive")); meta.append(label);
       }
@@ -1938,11 +1946,12 @@ const ADMIN_HTML = String.raw`<!doctype html>
     }
     function addConditionRow(condition={field:"subject",operator:"contains",value:"",caseSensitive:false}) {
       conditionSequence += 1;
+      const displayField=condition.field==="webhook"?"webhook:"+condition.webhookKey:condition.field;
       const row=node("div",undefined,"condition-row"); row.dataset.conditionId=String(conditionSequence);
       row.append(node("div","","condition-index"));
       const content=node("div"); const grid=node("div",undefined,"condition-grid");
       const fieldWrap=node("div",undefined,"form-field"); const fieldLabel=node("label","Field");
-      const fieldSelect=node("select"); fieldSelect.dataset.role="field"; fieldSelect.setAttribute("aria-label","Condition field"); fields.forEach((item)=>fieldSelect.append(makeOption(item[0],item[1]))); fieldSelect.value=condition.field;
+      const fieldSelect=node("select"); fieldSelect.dataset.role="field"; fieldSelect.setAttribute("aria-label","Condition field"); fields.forEach((item)=>fieldSelect.append(makeOption(item[0],item[1]))); fieldSelect.value=displayField;
       fieldWrap.append(fieldLabel,fieldSelect);
       const operatorWrap=node("div",undefined,"form-field"); operatorWrap.append(node("label","Operator"));
       const operatorSelect=node("select"); operatorSelect.dataset.role="operator"; operatorSelect.setAttribute("aria-label","Condition operator");
@@ -1962,6 +1971,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       const field=row.querySelector('[data-role="field"]').value;
       const operator=row.querySelector('[data-role="operator"]').value;
       const result={field,operator,caseSensitive:Boolean(row.querySelector('[data-role="case"]')?.checked)};
+      if (field.startsWith("webhook:")) { result.field="webhook"; result.webhookKey=field.slice(8); }
       if (field === "header") {
         const headerName=row.querySelector('[data-role="header-name"]').value.trim();
         if (!headerName) throw new Error("Every header condition needs a header name.");
@@ -2626,6 +2636,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
         const response=await fetch("/api/v1/events/"+encodeURIComponent(eventKey(event))+"/raw",{headers:{authorization:"Bearer "+token}});
         if (!response.ok) { const raw=await response.text(); let data={}; try { data=JSON.parse(raw); } catch {} throw new Error(formatApiError(response,data,raw)); }
         const payload=JSON.parse(await response.text()); const pointers=capturePointers(payload).slice(0,50); const used=new Set(); const dialog=document.createElement("dialog"); const title=node("h3","Webhook received — build mappings"); const pre=node("pre",JSON.stringify(payload,null,2),"capture-preview"); pre.style.maxHeight="360px"; pre.style.overflow="auto"; const info=node("p","Detected "+pointers.length+" scalar fields. Save these paths to the source mapping editor, then rename variables and save the source."); const save=node("button","Load fields into source editor","btn btn-primary primary small"); save.type="button"; save.onclick=async()=>{ const sourceId=event.ingress?.sourceId; try { if(!inboundWebhookSources.length) { const data=await api("/api/v1/inbound-webhook-sources"); inboundWebhookSources=data.sources||[]; } const source=inboundWebhookSources.find((item)=>sourceId?item.id===sourceId:item.name===event.ingress?.sourceName); if(!source) throw new Error("Webhook source is unavailable"); dialog.close(); showTab("setup",true); setTimeout(()=>{ openInboundWebhookSourceForm(source,button); byId("inboundWebhookMappings").value=pointers.map((pointer)=>captureFieldName(pointer,used)+" = "+pointer).join("\n"); },0); } catch(error) { showToast(error.message,"error"); } }; const close=node("button","Close","btn small"); close.type="button"; close.onclick=()=>dialog.close(); dialog.append(title,info,pre,save,close); document.body.append(dialog); dialog.showModal();
+        save.onclick=()=>{ const selected=rows.filter((item)=>item.check.checked); if(!selected.length){showToast("Select at least one webhook field for the rule","error");return;} const conditions=selected.map((item)=>({field:"webhook",webhookKey:item.name.value.trim(),operator:"equals",value:item.value===undefined?"":String(item.value),caseSensitive:false})); dialog.close(); setWebhookConditionFields(selected.map((item)=>item.name.value.trim())); byId("conditions").textContent=""; conditions.forEach((condition)=>addConditionRow(condition)); setText("conditionsHeading","Webhook conditions"); const description=byId("conditionsHeading").parentElement?.querySelector("p"); if(description) description.textContent="Match extracted fields from this webhook payload. Example values are loaded from the selected audit event."; showToast(conditions.length+" webhook condition"+(conditions.length===1?"":"s")+" loaded into the rule"); };
       } catch(error) { showToast(error.message,"error"); } finally { if (document.contains(button)) setBusy(button,false,""); }
     }
     function webhookPointerValue(payload,pointer) {
@@ -2643,9 +2654,9 @@ const ADMIN_HTML = String.raw`<!doctype html>
         const response=await fetch("/api/v1/events/"+encodeURIComponent(eventKey(event))+"/raw",{headers:{authorization:"Bearer "+token}});
         if (!response.ok) { const raw=await response.text(); let data={}; try { data=JSON.parse(raw); } catch {} throw new Error(formatApiError(response,data,raw)); }
         const payload=JSON.parse(await response.text()); const pointers=capturePointers(payload).slice(0,50); const used=new Set(); const dialog=document.createElement("dialog"); dialog.className="webhook-audit-dialog"; const shell=node("div",undefined,"webhook-audit-shell");
-        const heading=node("div",undefined,"dialog-header"); heading.append(node("h3","Build webhook conditions","dialog-title"),node("p","These are the scalar values received in the selected audit event. Mark a field required to reject future requests when it is missing, then load the conditions into the webhook source editor.","muted"));
+        const heading=node("div",undefined,"dialog-header"); heading.append(node("h3","Build webhook conditions","dialog-title"),node("p","These are the scalar values received in the selected audit event. Choose the fields that should match future webhook requests, then load them into the rule conditions.","muted"));
         const table=node("div",undefined,"webhook-audit-fields"); const rows=[];
-        pointers.forEach((pointer)=>{ const key=captureFieldName(pointer,used); const value=webhookPointerValue(payload,pointer); const row=node("div",undefined,"webhook-audit-field"); const check=node("input"); check.type="checkbox"; check.id="webhook-required-"+rows.length; const label=node("label",undefined,"webhook-audit-required"); label.append(check,node("span","Required")); const name=node("input"); name.value=key; name.maxLength=64; name.setAttribute("aria-label","Webhook field name"); const path=node("code",pointer,"webhook-audit-path"); const example=node("pre",value===undefined?"(missing)":JSON.stringify(value),"webhook-audit-value"); row.append(label,name,path,example); table.append(row); rows.push({row,check,name,pointer}); });
+        pointers.forEach((pointer)=>{ const key=captureFieldName(pointer,used); const value=webhookPointerValue(payload,pointer); const row=node("div",undefined,"webhook-audit-field"); const check=node("input"); check.type="checkbox"; check.checked=true; check.id="webhook-required-"+rows.length; const label=node("label",undefined,"webhook-audit-required"); label.append(check,node("span","Use in rule")); const name=node("input"); name.value=key; name.maxLength=64; name.setAttribute("aria-label","Webhook field name"); const path=node("code",pointer,"webhook-audit-path"); const example=node("pre",value===undefined?"(missing)":JSON.stringify(value),"webhook-audit-value"); row.append(label,name,path,example); table.append(row); rows.push({row,check,name,pointer,value}); });
         if (!rows.length) table.append(node("p","No scalar JSON values were found in this payload.","retention-note"));
         const info=node("p","Webhook conditions are enforced by the source mappings. The example values are for review only and are not saved with the rule.","webhook-audit-dialog-note"); const footer=node("div",undefined,"dialog-footer"); const save=node("button","Load conditions into source editor","btn btn-primary primary small"); save.type="button"; save.disabled=!rows.length; save.onclick=async()=>{ try { const sourceId=event.ingress?.sourceId; if(!inboundWebhookSources.length) { const data=await api("/api/v1/inbound-webhook-sources"); inboundWebhookSources=data.sources||[]; } const source=inboundWebhookSources.find((item)=>sourceId?item.id===sourceId:item.name===event.ingress?.sourceName); if(!source) throw new Error("Webhook source is unavailable"); const mappings=rows.map((item)=>{ const key=item.name.value.trim(); if(!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(key)) throw new Error("Webhook field names must use letters, numbers, and underscores."); return key+(item.check.checked?"!":"")+" = "+item.pointer; }); dialog.close(); showTab("setup",true); setTimeout(()=>{ openInboundWebhookSourceForm(source,button); byId("inboundWebhookMappings").value=mappings.join("\n"); },0); } catch(error) { showToast(error.message,"error"); } }; const close=node("button","Close","btn small"); close.type="button"; close.onclick=()=>dialog.close(); footer.append(save,close); shell.append(heading,table,info,footer); dialog.append(shell); document.body.append(dialog); dialog.addEventListener("close",()=>dialog.remove(),{once:true}); dialog.showModal();
       } catch(error) { showToast(error.message,"error"); } finally { if (document.contains(button)) setBusy(button,false,""); }
