@@ -1808,13 +1808,12 @@ async function handleProtectedApi(
         .bind(id)
         .first();
       if (!source) return problem(404, "Webhook source not found");
-      const expires = new Date(Date.now() + 15 * 60_000).toISOString();
       await env.DB.prepare(
-        "UPDATE inbound_webhook_sources SET capture_requested_at = ?, capture_expires_at = ?, capture_object_key = NULL WHERE id = ?",
+        "UPDATE inbound_webhook_sources SET capture_requested_at = ?, capture_expires_at = NULL, capture_object_key = NULL WHERE id = ?",
       )
-        .bind(new Date().toISOString(), expires, id)
+        .bind(new Date().toISOString(), id)
         .run();
-      return json({ armed: true, expiresAt: expires });
+      return json({ armed: true });
     }
     if (request.method === "GET") {
       const row = await env.DB.prepare(
@@ -1829,12 +1828,6 @@ async function handleProtectedApi(
       if (!row.capture_object_key || !env.MESSAGE_ARCHIVE)
         return json({ captured: false, expiresAt: row.capture_expires_at });
       const object = await env.MESSAGE_ARCHIVE.get(row.capture_object_key);
-      await env.MESSAGE_ARCHIVE.delete(row.capture_object_key);
-      await env.DB.prepare(
-        "UPDATE inbound_webhook_sources SET capture_object_key = NULL WHERE id = ?",
-      )
-        .bind(id)
-        .run();
       return json({
         captured: true,
         payload: object ? await object.text() : null,

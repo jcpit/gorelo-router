@@ -737,15 +737,11 @@ export async function handleInboundWebhook(
   // first authenticated request. The raw JSON never enters the normal audit.
   const capture = await env.DB.prepare(
     `SELECT capture_expires_at FROM inbound_webhook_sources
-      WHERE id = ? AND capture_expires_at IS NOT NULL`,
+      WHERE id = ? AND capture_requested_at IS NOT NULL AND capture_object_key IS NULL`,
   )
     .bind(found.source.id)
     .first<{ capture_expires_at: string }>();
-  if (
-    capture &&
-    capture.capture_expires_at > new Date().toISOString() &&
-    env.MESSAGE_ARCHIVE
-  ) {
+  if (capture && env.MESSAGE_ARCHIVE) {
     const objectKey = `webhook-captures/${found.source.id}/${crypto.randomUUID()}.json`;
     await env.MESSAGE_ARCHIVE.put(objectKey, JSON.stringify(body.payload), {
       httpMetadata: { contentType: "application/json" },

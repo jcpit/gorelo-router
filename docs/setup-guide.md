@@ -1046,8 +1046,10 @@ then open **Setup → Inbound webhook sources**:
    retained. Rotation invalidates the old token immediately.
 5. To map an unfamiliar payload such as a CIPP alert, select **Capture next**
    beside the source, send exactly one test request, and inspect the private
-   preview. The capture is one-shot, expires after 15 minutes, and is deleted
-   when read; it is not added to the normal audit record.
+   preview. The capture stays armed until one authenticated request arrives,
+   remains private for the mapping workflow, and is not added to the normal
+   audit record. Save the detected paths into the source mapping editor before
+   continuing.
 
 Send JSON to the displayed endpoint through the Worker's Access-protected
 Custom Domain. Give non-human senders a narrowly scoped Cloudflare Access
