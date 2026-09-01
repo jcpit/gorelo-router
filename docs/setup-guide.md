@@ -1050,7 +1050,10 @@ Custom Domain. Give non-human senders a narrowly scoped Cloudflare Access
 service-token policy when Access protects the hostname. In that case the sender
 must also provide its separate `CF-Access-Client-Id` and
 `CF-Access-Client-Secret` headers; never substitute the Router source token for
-an Access credential:
+an Access credential. CIPP notification webhooks cannot add a bearer header, so
+append the one-time source token as `?token=...` to the endpoint URL when
+registering it in CIPP; protect the hostname with Cloudflare Access where
+possible because URL query strings can be retained by upstream logs:
 
 ```bash
 export GORELO_ROUTER_SOURCE_TOKEN='paste-the-one-time-source-token'

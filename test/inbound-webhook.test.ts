@@ -180,7 +180,7 @@ describe("inbound webhook sources", () => {
 
   it("authenticates, audits mapped values, and deduplicates retries", async () => {
     const { db } = database();
-    const created = await createInboundWebhookSource(db, sourceInput(1));
+    const created = await createInboundWebhookSource(db, sourceInput(10));
     const env = { DB: db } as Env;
     const makeRequest = (token: string) =>
       new Request("https://router.example/hooks/v1/monitoring-platform", {
@@ -225,6 +225,25 @@ describe("inbound webhook sources", () => {
       },
     });
     expect(JSON.stringify(event)).not.toContain("ignored-secret-value");
+
+    const cippRequest = new Request(
+      `https://router.example/hooks/v1/monitoring-platform?token=${encodeURIComponent(created.token)}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          client: { name: "CIPP" },
+          assets: [{ hostname: "CIPP-01" }],
+        }),
+      },
+    );
+    const cipp = await handleInboundWebhook(
+      cippRequest,
+      env,
+      config(),
+      created.source.slug,
+    );
+    expect(cipp.duplicate).toBe(false);
 
     const duplicate = await handleInboundWebhook(
       makeRequest(created.token),

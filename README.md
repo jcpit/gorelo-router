@@ -743,6 +743,11 @@ variables. It never stores the raw JSON body, source token, Authorization
 header, or other request headers. The token is shown once at creation/rotation;
 only its SHA-256 digest and six-character operator hint remain.
 
+CIPP notification webhooks can use the source URL with its one-time token in
+the `token` query parameter because CIPP does not add a custom bearer header.
+Protect the hostname with Cloudflare Access where possible, since URL query
+strings may be retained by upstream logs.
+
 A next-message teaching capture is a separate, temporary private R2 object
 under `parser-samples/` containing normalized plain text only. It expires within
 60 minutes and is not the retained raw message archive; HTML, attachments, and

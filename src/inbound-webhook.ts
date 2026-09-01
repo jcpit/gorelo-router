@@ -386,7 +386,16 @@ function constantTimeHexEqual(left: string, right: string): boolean {
 function suppliedToken(request: Request): string {
   const authorization = request.headers.get("authorization") ?? "";
   if (authorization.startsWith("Bearer ")) return authorization.slice(7);
-  return request.headers.get("x-gorelo-router-token") ?? "";
+  const headerToken = request.headers.get("x-gorelo-router-token");
+  if (headerToken) return headerToken;
+  // CIPP's notification webhooks accept a URL but do not provide a custom
+  // header. Allow the one-time source token as a query parameter for that
+  // integration; operators should prefer Cloudflare Access where possible.
+  try {
+    return new URL(request.url).searchParams.get("token") ?? "";
+  } catch {
+    return "";
+  }
 }
 
 async function readJsonBody(
