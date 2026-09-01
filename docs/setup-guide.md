@@ -502,6 +502,21 @@ There are two independent controls:
 Both must allow an address. A destination override that passes one control but
 not the other will fail.
 
+#### Gorelo addresses in an inbound domain
+
+Gorelo's native forwarding addresses can use a subdomain of the same domain,
+for example `helpdesk@gorelo.example.com`. Cloudflare Email Routing protects
+against loops across an entire zone, so `message.forward()` cannot deliver to
+that address when the parent domain is handled by this Worker—even when the
+subdomain has an external Gorelo/Mailgun MX record.
+
+Enable Cloudflare Email Sending for the sender domain and configure the
+`RELEASE_EMAIL` binding plus `RELEASE_FROM_ADDRESS`. Gorelo Router then submits
+same-zone Gorelo mail through Email Sending, preserving the original MIME
+message and attachments. External destinations continue to use native
+Email Routing forwarding. Email Sending is a separate Cloudflare service and
+may require a Workers Paid plan.
+
 See Cloudflare's
 [destination-address documentation](https://developers.cloudflare.com/email-service/configuration/email-routing-addresses/).
 
@@ -908,9 +923,11 @@ to `QUARANTINE_ADDRESS` or the rule's explicit review destination. The mailbox
 owns disposition. Even when an R2 audit copy exists, the dashboard does not
 present it as a releasable hold.
 
-### 15.2 Automated release from internal quarantine
+### 15.2 Email Sending for same-zone Gorelo delivery and quarantine release
 
-The production scaffold intentionally omits Email Sending. To enable release:
+Email Sending is also used when a Gorelo forwarding address belongs to one of
+the inbound domains, because Cloudflare blocks that path as a same-zone loop.
+The same binding supports internal-quarantine release. To enable both paths:
 
 1. Onboard the sender domain in Cloudflare under **Compute → Email Service →
    Email Sending**.
@@ -920,9 +937,6 @@ The production scaffold intentionally omits Email Sending. To enable release:
    "send_email": [
      {
        "name": "RELEASE_EMAIL",
-       "allowed_destination_addresses": [
-         "tickets@your-gorelo-route.example"
-       ],
        "allowed_sender_addresses": [
          "gorelo-router@your-domain.example"
        ]
@@ -936,11 +950,12 @@ The production scaffold intentionally omits Email Sending. To enable release:
    "RELEASE_FROM_ADDRESS": "gorelo-router@your-domain.example"
    ```
 
-4. Authorize every selectable release mailbox through its exact default domain,
+4. Authorize every selectable Gorelo mailbox through its exact default domain,
    `ALLOWED_FORWARD_DOMAINS`, or an exact
-   `ALLOWED_FORWARD_DESTINATIONS` override, and put every complete destination
-   address in the binding's `allowed_destination_addresses`. The Cloudflare
-   send binding never expands a domain entry; it requires exact addresses.
+   `ALLOWED_FORWARD_DESTINATIONS` override. Keep the application allowlist
+   narrow; the binding's sender restriction remains independent of it. If you
+   add an `allowed_destination_addresses` restriction to the binding, every
+   same-zone Gorelo mailbox must be listed exactly.
 5. Deploy, refresh Setup, and live-test sender association, threading, and
    attachments with non-sensitive mail.
 

@@ -60,6 +60,14 @@ Cloudflare Email Routing ──► Email Worker ──► D1 rules + audit
 
 Forwarding is the primary feature because Gorelo's structured API does not accept raw MIME or attachments. Gorelo's native forwarding route preserves mail semantics and can apply configured group, client, tag, and user metadata; see Gorelo's [custom-domain and forwarding guide](https://help.gorelo.io/custom-domain).
 
+Gorelo forwarding addresses often use a subdomain of the inbound domain (for
+example, `helpdesk@gorelo.example.com`). Cloudflare blocks native Email Routing
+forwards to any address in the same zone as the Worker, so production should
+enable the separate Cloudflare Email Sending service and configure the
+`RELEASE_EMAIL` binding plus `RELEASE_FROM_ADDRESS`. Same-zone Gorelo mail is
+then submitted through Email Sending with the original MIME and attachments;
+external destinations continue to use `message.forward()`.
+
 Create several Gorelo forwarding addresses when different alert sources need
 different metadata, then register them as named mailboxes in **Setup**. Exactly
 one mailbox is the persistent default. A forwarding rule can deliberately

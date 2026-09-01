@@ -3,6 +3,7 @@ import {
   deleteArchivedMessage,
   type ArchivedMessage,
 } from "./archive";
+import { EmailMessage } from "cloudflare:email";
 import { buildMessageAudit } from "./audit";
 import { loadConfig } from "./config";
 import { resolveClientIdentity } from "./client-directory";
@@ -305,6 +306,41 @@ async function forward(
   await message.forward(
     decision.destination,
     forwardingHeaders(decision, message.to),
+  );
+}
+
+function sameInboundZone(
+  destination: string,
+  inboundDomains: ReadonlySet<string>,
+): boolean {
+  const at = destination.lastIndexOf("@");
+  if (at < 0) return false;
+  const domain = destination.slice(at + 1).trim().toLowerCase();
+  return [...inboundDomains].some(
+    (inboundDomain) =>
+      domain === inboundDomain || domain.endsWith(`.${inboundDomain}`),
+  );
+}
+
+async function deliverSameZoneGoreloAddress(
+  message: ForwardableEmailMessage,
+  destination: string,
+  config: RuntimeConfig,
+  raw: ArrayBuffer | undefined,
+  env: Env,
+): Promise<void> {
+  if (!env.RELEASE_EMAIL || !config.releaseFromAddress) {
+    throw new Error(
+      "Same-zone Gorelo forwarding requires the RELEASE_EMAIL binding and RELEASE_FROM_ADDRESS",
+    );
+  }
+  const original = raw ?? (await readRawMessage(message));
+  await env.RELEASE_EMAIL.send(
+    new EmailMessage(
+      config.releaseFromAddress,
+      destination,
+      new Blob([original]).stream(),
+    ),
   );
 }
 
@@ -1121,8 +1157,29 @@ export async function handleEmail(
           );
         }
         eventRecorded = true;
+        const destination = decision.destination;
+        if (!destination) {
+          throw new Error(`${decision.type} decision has no destination`);
+        }
         try {
-          await forward(message, decision);
+          if (sameInboundZone(destination, config.inboundEmailDomains)) {
+            await deliverSameZoneGoreloAddress(
+              message,
+              destination,
+              config,
+              raw,
+              env,
+            );
+            trace.push({
+              stage: "forward",
+              outcome: "success",
+              detail:
+                "Submitted the original message through Email Sending to bypass same-zone Email Routing loop protection",
+              at: new Date().toISOString(),
+            });
+          } else {
+            await forward(message, decision);
+          }
         } catch (forwardError) {
           if (webhookInput) {
             await executeWebhookDelivery(env, config, {

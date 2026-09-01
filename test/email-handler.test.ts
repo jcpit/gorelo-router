@@ -166,6 +166,28 @@ describe("Email Worker handler", () => {
     expect(fake.outcomeBindings[0]?.[0]).toBe("forwarded");
   });
 
+  it("uses Email Sending for a Gorelo address in the inbound zone", async () => {
+    const fake = database();
+    const mail = message();
+    const send = vi.fn(async () => ({}) as EmailSendResult);
+    const context = executionContext();
+    await handleEmail(
+      mail.inbound,
+      env(fake.db, {
+        INBOUND_EMAIL_DOMAINS: "alerts.example.net,gorelo.example",
+        RELEASE_EMAIL: { send } as unknown as SendEmail,
+        RELEASE_FROM_ADDRESS: "router@alerts.example.net",
+      }),
+      context.context,
+    );
+    await context.settle();
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(mail.forward).not.toHaveBeenCalled();
+    expect(mail.setReject).not.toHaveBeenCalled();
+    expect(fake.outcomeBindings[0]?.[0]).toBe("forwarded");
+  });
+
   it("does not forward when the pre-forward audit cannot be persisted", async () => {
     const statement = {
       bind() {

@@ -37,8 +37,18 @@
       "bucket_name": "mail-parser-quarantine",
     },
   ],
+  "send_email": [
+    {
+      "name": "RELEASE_EMAIL",
+      "allowed_destination_addresses": [
+        "replace-with-your-gorelo-forwarding-address@example.com",
+      ],
+      "allowed_sender_addresses": ["replace-with-release-sender@example.com"],
+    },
+  ],
   "vars": {
     "DEFAULT_GORELO_ADDRESS": "replace-with-your-gorelo-forwarding-address@example.com",
+    "RELEASE_FROM_ADDRESS": "replace-with-release-sender@example.com",
     "INBOUND_EMAIL_DOMAINS": "example.com",
     "ALLOWED_FORWARD_DOMAINS": "",
     "ALLOWED_FORWARD_DESTINATIONS": "",
