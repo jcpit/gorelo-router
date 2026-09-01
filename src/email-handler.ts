@@ -1,6 +1,7 @@
 import {
   archiveRawMessage,
   deleteArchivedMessage,
+  prepareReleasedMessage,
   type ArchivedMessage,
 } from "./archive";
 import { EmailMessage } from "cloudflare:email";
@@ -338,12 +339,15 @@ async function deliverSameZoneGoreloAddress(
     );
   }
   const original = raw ?? (await readRawMessage(message));
+  const rewritten = prepareReleasedMessage(original, {
+    from: config.releaseFromAddress,
+    to: destination,
+    originalEnvelopeFrom: message.from,
+    originalEnvelopeTo: message.to,
+    releaseId: crypto.randomUUID(),
+  });
   await env.RELEASE_EMAIL.send(
-    new EmailMessage(
-      config.releaseFromAddress,
-      destination,
-      new Blob([original]).stream(),
-    ),
+    new EmailMessage(config.releaseFromAddress, destination, rewritten),
   );
 }
 
