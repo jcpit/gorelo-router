@@ -733,6 +733,32 @@ export async function handleInboundWebhook(
     );
   }
   const body = await readJsonBody(request);
+  // A capture is armed explicitly by an administrator and is consumed by the
+  // first authenticated request. The raw JSON never enters the normal audit.
+  const capture = await env.DB.prepare(
+    `SELECT capture_expires_at FROM inbound_webhook_sources
+      WHERE id = ? AND capture_expires_at IS NOT NULL`,
+  )
+    .bind(found.source.id)
+    .first<{ capture_expires_at: string }>();
+  if (
+    capture &&
+    capture.capture_expires_at > new Date().toISOString() &&
+    env.MESSAGE_ARCHIVE
+  ) {
+    const objectKey = `webhook-captures/${found.source.id}/${crypto.randomUUID()}.json`;
+    await env.MESSAGE_ARCHIVE.put(objectKey, JSON.stringify(body.payload), {
+      httpMetadata: { contentType: "application/json" },
+    });
+    await env.DB.prepare(
+      `UPDATE inbound_webhook_sources
+          SET capture_expires_at = NULL, capture_object_key = ?, version = version + 1,
+              updated_at = ?
+        WHERE id = ?`,
+    )
+      .bind(objectKey, new Date().toISOString(), found.source.id)
+      .run();
+  }
   const idempotencyKey = inboundEventIdempotencyKey(request, body.digest);
   const prior = await existingEvent(env.DB, found.source.id, idempotencyKey);
   if (prior)

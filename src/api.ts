@@ -1793,6 +1793,56 @@ async function handleProtectedApi(
     return problem(405, "Method not allowed");
   }
 
+  const inboundWebhookCaptureMatch = url.pathname.match(
+    /^\/api\/v1\/inbound-webhook-sources\/([^/]+)\/capture$/,
+  );
+  if (inboundWebhookCaptureMatch) {
+    const id = safeResourceId(
+      decodeURIComponent(inboundWebhookCaptureMatch[1]!),
+      "webhook source ID",
+    );
+    if (request.method === "POST") {
+      const source = await env.DB.prepare(
+        "SELECT id FROM inbound_webhook_sources WHERE id = ?",
+      )
+        .bind(id)
+        .first();
+      if (!source) return problem(404, "Webhook source not found");
+      const expires = new Date(Date.now() + 15 * 60_000).toISOString();
+      await env.DB.prepare(
+        "UPDATE inbound_webhook_sources SET capture_requested_at = ?, capture_expires_at = ?, capture_object_key = NULL WHERE id = ?",
+      )
+        .bind(new Date().toISOString(), expires, id)
+        .run();
+      return json({ armed: true, expiresAt: expires });
+    }
+    if (request.method === "GET") {
+      const row = await env.DB.prepare(
+        "SELECT capture_object_key, capture_expires_at FROM inbound_webhook_sources WHERE id = ?",
+      )
+        .bind(id)
+        .first<{
+          capture_object_key: string | null;
+          capture_expires_at: string | null;
+        }>();
+      if (!row) return problem(404, "Webhook source not found");
+      if (!row.capture_object_key || !env.MESSAGE_ARCHIVE)
+        return json({ captured: false, expiresAt: row.capture_expires_at });
+      const object = await env.MESSAGE_ARCHIVE.get(row.capture_object_key);
+      await env.MESSAGE_ARCHIVE.delete(row.capture_object_key);
+      await env.DB.prepare(
+        "UPDATE inbound_webhook_sources SET capture_object_key = NULL WHERE id = ?",
+      )
+        .bind(id)
+        .run();
+      return json({
+        captured: true,
+        payload: object ? await object.text() : null,
+      });
+    }
+    return problem(405, "Method not allowed");
+  }
+
   const inboundWebhookRotateMatch = url.pathname.match(
     /^\/api\/v1\/inbound-webhook-sources\/([^/]+)\/rotate-token$/,
   );

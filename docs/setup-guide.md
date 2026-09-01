@@ -1044,6 +1044,10 @@ then open **Setup → Inbound webhook sources**:
 4. Set a per-source request-per-minute limit, save, and immediately copy the
    one-time bearer token. Only its SHA-256 digest and a short display hint are
    retained. Rotation invalidates the old token immediately.
+5. To map an unfamiliar payload such as a CIPP alert, select **Capture next**
+   beside the source, send exactly one test request, and inspect the private
+   preview. The capture is one-shot, expires after 15 minutes, and is deleted
+   when read; it is not added to the normal audit record.
 
 Send JSON to the displayed endpoint through the Worker's Access-protected
 Custom Domain. Give non-human senders a narrowly scoped Cloudflare Access

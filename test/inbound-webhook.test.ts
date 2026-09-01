@@ -64,6 +64,7 @@ class TestDatabase {
       "0002_mailboxes_and_parser_samples.sql",
       "0003_parser_captures.sql",
       "0004_inbound_webhooks.sql",
+      "0005_inbound_webhook_capture.sql",
     ]) {
       this.sqlite.exec(readFileSync(`migrations/${migration}`, "utf8"));
     }
