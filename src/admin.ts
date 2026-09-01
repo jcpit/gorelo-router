@@ -2626,7 +2626,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
         if (response.status===401) forceDisconnect("Your admin session expired. Enter the token again.");
         if (!response.ok) { const raw=await response.text(); let data={}; try { data=JSON.parse(raw); } catch {} throw new Error(formatApiError(response,data,raw)); }
         const blob=await response.blob(); const url=URL.createObjectURL(blob); const link=node("a"); const base=(event.subject||"message").replace(/[^a-z0-9_-]+/gi,"-").replace(/^-|-$/g,"").slice(0,80)||"message";
-        link.href=url; link.download=base+".eml"; document.body.append(link); link.click(); link.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000); showToast("Archived original download started");
+        const webhook=event.ingress?.type==="webhook"; link.href=url; link.download=base+".eml"; if (webhook) link.download=base+".json"; document.body.append(link); link.click(); link.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000); showToast(webhook?"Raw webhook JSON download started":"Archived original download started");
       } catch(error) { showError("eventsNotice",error); showToast(error.message,"error"); }
       finally { if (document.contains(button)) setBusy(button,false,""); }
     }
