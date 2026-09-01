@@ -2136,6 +2136,61 @@ async function handleProtectedApi(
     return json(await trainingSampleForEvent(env, config, event));
   }
 
+  const eventRecheckMatch = url.pathname.match(
+    /^\/api\/v1\/events\/([^/]+)\/recheck$/,
+  );
+  if (eventRecheckMatch) {
+    if (request.method !== "POST") return problem(405, "Method not allowed");
+    const eventId = decodeURIComponent(eventRecheckMatch[1]!);
+    const event = await getEvent(env.DB, eventId);
+    if (!event) return problem(404, "Processing event not found");
+    if (event.ingress?.type === "webhook") {
+      throw new HttpError(409, "Webhook events must be rechecked from their webhook source");
+    }
+    const audit = event.audit;
+    const input = dryRunEmailSchema.parse({
+      from: event.envelopeFrom,
+      to: event.envelopeTo,
+      subject: event.subject,
+      bodyText: audit?.bodyPreview ?? "",
+      attachmentNames: (audit?.attachments ?? []).map((item) => item.filename),
+      rawSize: event.rawSize,
+      headers: audit?.headers ?? {},
+    });
+    const [rules, mailboxDirectory] = await Promise.all([
+      listRules(env.DB),
+      goreloMailboxDirectory(env, config),
+    ]);
+    const facts = dryRunFacts(input, config.maxBodyCharacters);
+    const spam = assessSpam(facts, config);
+    const decision = decide({ ...facts, spam }, rules, config, mailboxDirectory);
+    return json({
+      eventId,
+      historical: {
+        decision: event.decision,
+        status: event.status,
+        spamScore: event.spamScore,
+        spamReasons: event.spamReasons,
+        matchedRuleId: event.matchedRuleId,
+        matchedRuleName: event.matchedRuleName,
+        destination: event.destination,
+      },
+      current: {
+        decision: decision.type,
+        reason: decision.reason,
+        spamScore: decision.spam.score,
+        spamReasons: decision.spam.reasons,
+        matchedRuleId: decision.matchedRuleId,
+        matchedRuleName: decision.matchedRuleName,
+        destination: decision.destination,
+      },
+      limitations: [
+        ...(audit?.bodyTruncated ? ["The retained body preview was truncated"] : []),
+        "This is a simulation only; no message was forwarded, stored, or sent to Gorelo",
+      ],
+    });
+  }
+
   const eventRawMatch = url.pathname.match(/^\/api\/v1\/events\/([^/]+)\/raw$/);
   if (eventRawMatch) {
     if (request.method !== "GET") return problem(405, "Method not allowed");

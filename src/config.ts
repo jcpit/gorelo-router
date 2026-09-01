@@ -113,6 +113,14 @@ function csv(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
+function booleanSetting(value: string | undefined, fallback: boolean, label: string): boolean {
+  if (value === undefined || value.trim() === "") return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  throw new ConfigurationError(`${label} must be true or false`);
+}
+
 function enumSetting<const T extends string>(
   value: string | undefined,
   fallback: T,
@@ -352,6 +360,23 @@ export function loadConfig(env: Env): RuntimeConfig {
       "WEBHOOK_TIMEOUT_MS",
       50,
       30_000,
+    ),
+    postmarkSpamcheckEnabled: booleanSetting(
+      env.POSTMARK_SPAMCHECK_ENABLED,
+      false,
+      "POSTMARK_SPAMCHECK_ENABLED",
+    ),
+    postmarkSpamcheckUnknownSendersOnly: booleanSetting(
+      env.POSTMARK_SPAMCHECK_UNKNOWN_SENDERS_ONLY,
+      true,
+      "POSTMARK_SPAMCHECK_UNKNOWN_SENDERS_ONLY",
+    ),
+    postmarkSpamcheckTimeoutMs: integerSetting(
+      env.POSTMARK_SPAMCHECK_TIMEOUT_MS,
+      3_000,
+      "POSTMARK_SPAMCHECK_TIMEOUT_MS",
+      250,
+      10_000,
     ),
   };
 }

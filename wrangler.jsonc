@@ -64,6 +64,9 @@
     "GORELO_CATALOG_CACHE_SECONDS": "300",
     "ALLOWED_WEBHOOK_HOSTS": "",
     "WEBHOOK_TIMEOUT_MS": "8000",
+    "POSTMARK_SPAMCHECK_ENABLED": "false",
+    "POSTMARK_SPAMCHECK_UNKNOWN_SENDERS_ONLY": "true",
+    "POSTMARK_SPAMCHECK_TIMEOUT_MS": "3000",
   },
   "triggers": {
     "crons": ["*/5 * * * *", "17 3 * * *"],

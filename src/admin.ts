@@ -2443,7 +2443,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
         eventDetail(webhookIngress?"Action template":"Matched rule",event.matchedRuleName||event.matchedRuleId||(webhookIngress?"Source route":"Global/default policy")),eventDetail("Destination",presentation.destinationLabel),eventDetail(webhookIngress?"Idempotency key":"Message ID",event.messageId)
       );
       if (webhookIngress) overviewGrid.append(eventDetail("Event type",event.ingress.eventType||event.subject),eventDetail("Payload SHA-256",event.ingress.payloadDigest||"Not recorded"));
-      overview.append(overviewGrid); if (includeDeliveries || webhookIngress) { const actions=node("div",undefined,"review-actions"); if (webhookIngress) { const build=node("button","View JSON / build mappings","btn btn-primary primary small"); build.type="button"; build.onclick=()=>openWebhookAuditBuilder(event,build); actions.append(build); } else { const create=node("button","Create rule from this email","btn btn-primary primary small"); create.type="button"; create.setAttribute("aria-label","Create a parser rule from "+(event.subject||"this audited email")); create.onclick=()=>openParserRuleFromAudit(event,create); actions.append(create); } if (audit.rawAvailable===true) { const download=node("button",webhookIngress?"Download raw webhook JSON":"Download archived original (.eml)","btn small"); download.type="button"; download.onclick=()=>downloadAuditRaw(event,download); actions.append(download); } if (actions.childNodes.length) overview.append(actions); } wrap.append(overview);
+      overview.append(overviewGrid); if (includeDeliveries || webhookIngress) { const actions=node("div",undefined,"review-actions"); if (webhookIngress) { const build=node("button","View JSON / build mappings","btn btn-primary primary small"); build.type="button"; build.onclick=()=>openWebhookAuditBuilder(event,build); actions.append(build); } else { const create=node("button","Create rule from this email","btn btn-primary primary small"); create.type="button"; create.setAttribute("aria-label","Create a parser rule from "+(event.subject||"this audited email")); create.onclick=()=>openParserRuleFromAudit(event,create); actions.append(create); const recheck=node("button","Recheck current rules","btn small"); recheck.type="button"; recheck.onclick=()=>recheckAuditEvent(event,recheck); actions.append(recheck); } if (audit.rawAvailable===true) { const download=node("button",webhookIngress?"Download raw webhook JSON":"Download archived original (.eml)","btn small"); download.type="button"; download.onclick=()=>downloadAuditRaw(event,download); actions.append(download); } if (actions.childNodes.length) overview.append(actions); } wrap.append(overview);
 
       const analysis=reviewSection("Policy explanation");
       const threshold=audit.spamThreshold??runtimeConfig?.spamThreshold??"—";
@@ -2631,6 +2631,20 @@ const ADMIN_HTML = String.raw`<!doctype html>
         const webhook=event.ingress?.type==="webhook"; link.href=url; link.download=base+".eml"; if (webhook) link.download=base+".json"; document.body.append(link); link.click(); link.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000); showToast(webhook?"Raw webhook JSON download started":"Archived original download started");
       } catch(error) { showError("eventsNotice",error); showToast(error.message,"error"); }
       finally { if (document.contains(button)) setBusy(button,false,""); }
+    }
+    async function recheckAuditEvent(event,button) {
+      try {
+        await runBusy(button,"Rechecking…",async()=>{
+          const result=await api("/api/v1/events/"+encodeURIComponent(eventKey(event))+"/recheck",{method:"POST"});
+          const dialog=document.createElement("dialog"); dialog.className="command-dialog";
+          const historical=result.historical||{}; const current=result.current||{};
+          const esc=(value)=>String(value??"—");
+          const header=node("div",undefined,"dialog-header"); header.append(node("h2","Current-policy simulation"),node("p","This re-evaluates the retained audit facts against today’s rules. It does not forward or send anything."));
+          const body=node("div",undefined,"dialog-body"); const grid=node("div",undefined,"review-detail-grid");
+          [["Historical decision",historical.decision],["Current decision",current.decision],["Historical spam score",historical.spamScore],["Current spam score",current.spamScore],["Current matched rule",current.matchedRuleName||current.matchedRuleId||"Default policy"],["Current destination",current.destination||"No destination"]].forEach(([label,value])=>grid.append(eventDetail(label,esc(value))));
+          body.append(grid,node("p",Array.isArray(result.limitations)?result.limitations.join(" · "):"Simulation only","retention-note")); const footer=node("div",undefined,"dialog-footer"); const close=node("button","Close","btn btn-primary primary small"); close.type="button"; close.onclick=()=>dialog.close(); footer.append(close); dialog.append(header,body,footer); document.body.append(dialog); dialog.addEventListener("close",()=>dialog.remove(),{once:true}); dialog.showModal();
+        });
+      } catch(error) { showToast(error.message||"Unable to recheck this event","error"); }
     }
     async function openWebhookAuditBuilderLegacy(event,button) {
       setBusy(button,true,"Loading…");

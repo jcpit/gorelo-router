@@ -29,6 +29,9 @@ export interface Env {
   MAX_BODY_CHARACTERS?: string;
   MAX_HTML_SCAN_CHARACTERS?: string;
   EVENT_RETENTION_DAYS?: string;
+  POSTMARK_SPAMCHECK_ENABLED?: string;
+  POSTMARK_SPAMCHECK_UNKNOWN_SENDERS_ONLY?: string;
+  POSTMARK_SPAMCHECK_TIMEOUT_MS?: string;
 }
 
 export type SpamAction = "forward" | "quarantine" | "drop" | "reject";
@@ -61,6 +64,9 @@ export interface RuntimeConfig {
   allowedWebhookHosts: ReadonlySet<string>;
   webhookSigningConfigured: boolean;
   webhookTimeoutMs: number;
+  postmarkSpamcheckEnabled: boolean;
+  postmarkSpamcheckUnknownSendersOnly: boolean;
+  postmarkSpamcheckTimeoutMs: number;
 }
 
 export interface AttachmentFacts {

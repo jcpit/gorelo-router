@@ -224,6 +224,12 @@ an ordinary `docker compose up`.
    - Select the correct `GORELO_API_BASE_URL` region.
    - Leave `workers_dev` and `preview_urls` set to `false`.
    - Keep `SPAM_ACTION=forward` until real scores have been reviewed.
+   - Set `POSTMARK_SPAMCHECK_ENABLED=true` to enable the optional Postmark
+     SpamAssassin check. With `POSTMARK_SPAMCHECK_UNKNOWN_SENDERS_ONLY=true`
+     (the recommended setting), the raw message is sent to Postmark only when
+     its sender domain is not trusted and does not match an imported Gorelo
+     customer domain. A timeout or provider failure safely falls back to the
+     local scanner.
    - Add exact public hostnames to `ALLOWED_WEBHOOK_HOSTS` only when webhooks are
      required. Wildcards, ports, IP literals, and local names are rejected.
 
