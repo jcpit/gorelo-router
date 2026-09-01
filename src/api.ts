@@ -2167,6 +2167,21 @@ async function handleProtectedApi(
     const decision = decide({ ...facts, spam }, rules, config, mailboxDirectory);
     return json({
       eventId,
+      rulesetEvaluatedAt: new Date().toISOString(),
+      rulesConsidered: rules.map((rule) => ({
+        id: rule.id,
+        name: rule.name,
+        enabled: rule.enabled,
+        priority: rule.priority,
+        updatedAt: rule.updatedAt,
+      })),
+      factsUsed: {
+        envelopeFrom: facts.envelopeFrom,
+        envelopeTo: facts.envelopeTo,
+        fromDomain: facts.fromDomain,
+        subject: facts.subject,
+        bodyPreviewCharacters: facts.bodyText.length,
+      },
       historical: {
         decision: event.decision,
         status: event.status,
