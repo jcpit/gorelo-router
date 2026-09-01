@@ -224,6 +224,10 @@ an ordinary `docker compose up`.
    - Select the correct `GORELO_API_BASE_URL` region.
    - Leave `workers_dev` and `preview_urls` set to `false`.
    - Keep `SPAM_ACTION=forward` until real scores have been reviewed.
+   - Set `DEFAULT_ACTION=quarantine` to hold messages that match no routing
+     rule for review. Rules still run first; this only changes the final
+     unmatched fallback. Internal quarantine requires `QUARANTINE_MODE=internal`
+     and R2, while mailbox quarantine requires `QUARANTINE_ADDRESS`.
    - Set `POSTMARK_SPAMCHECK_ENABLED=true` to enable the optional Postmark
      SpamAssassin check. With `POSTMARK_SPAMCHECK_UNKNOWN_SENDERS_ONLY=true`
      (the recommended setting), the raw message is sent to Postmark only when

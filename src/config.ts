@@ -253,6 +253,13 @@ export function loadConfig(env: Env): RuntimeConfig {
     );
   }
   const spamAction = spamActionValue as SpamAction;
+  const defaultActionValue = (env.DEFAULT_ACTION ?? "forward").trim().toLowerCase();
+  if (!["forward", "quarantine", "drop", "reject"].includes(defaultActionValue)) {
+    throw new ConfigurationError(
+      "DEFAULT_ACTION must be forward, quarantine, drop, or reject",
+    );
+  }
+  const defaultAction = defaultActionValue as SpamAction;
   if (
     spamAction === "quarantine" &&
     quarantineMode === "mailbox" &&
@@ -260,6 +267,15 @@ export function loadConfig(env: Env): RuntimeConfig {
   ) {
     throw new ConfigurationError(
       "QUARANTINE_ADDRESS is required when SPAM_ACTION is quarantine",
+    );
+  }
+  if (
+    defaultAction === "quarantine" &&
+    quarantineMode === "mailbox" &&
+    !quarantineAddress
+  ) {
+    throw new ConfigurationError(
+      "QUARANTINE_ADDRESS is required when DEFAULT_ACTION is quarantine in mailbox mode",
     );
   }
 
@@ -310,6 +326,7 @@ export function loadConfig(env: Env): RuntimeConfig {
       8,
     ),
     spamAction,
+    defaultAction,
     spamKeywords: csv(env.SPAM_KEYWORDS),
     trustedSenderDomains: new Set(csv(env.TRUSTED_SENDER_DOMAINS)),
     maxParseBytes: integerSetting(

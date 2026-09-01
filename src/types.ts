@@ -23,6 +23,7 @@ export interface Env {
   ARCHIVE_MODE?: string;
   SPAM_THRESHOLD?: string;
   SPAM_ACTION?: string;
+  DEFAULT_ACTION?: string;
   SPAM_KEYWORDS?: string;
   TRUSTED_SENDER_DOMAINS?: string;
   MAX_PARSE_BYTES?: string;
@@ -51,6 +52,7 @@ export interface RuntimeConfig {
   allowedForwardDestinations: ReadonlySet<string>;
   spamThreshold: number;
   spamAction: SpamAction;
+  defaultAction: SpamAction;
   spamKeywords: readonly string[];
   trustedSenderDomains: ReadonlySet<string>;
   maxParseBytes: number;

@@ -558,13 +558,24 @@ function fallbackDecision(
     }
   }
 
-  const defaultMailbox = resolvedGoreloMailbox(null, config, directory);
-  return {
-    type: "forward",
-    ...defaultMailbox,
-    reason: "default Gorelo route",
-    spam: email.spam,
-  };
+  switch (config.defaultAction) {
+    case "quarantine":
+      if (config.quarantineMode === "internal") {
+        return { type: "quarantine", reason: "no rule matched; default quarantine", spam: email.spam };
+      }
+      if (!config.quarantineAddress) {
+        throw new Error("DEFAULT_ACTION is quarantine, but QUARANTINE_ADDRESS is not set");
+      }
+      return { type: "quarantine", destination: config.quarantineAddress, reason: "no rule matched; default quarantine", spam: email.spam };
+    case "drop":
+      return { type: "drop", reason: "no rule matched; default drop", spam: email.spam };
+    case "reject":
+      return { type: "reject", reason: "no rule matched; default reject", spam: email.spam };
+    case "forward": {
+      const defaultMailbox = resolvedGoreloMailbox(null, config, directory);
+      return { type: "forward", ...defaultMailbox, reason: "default Gorelo route", spam: email.spam };
+    }
+  }
 }
 
 function matchedRuleDecision(
