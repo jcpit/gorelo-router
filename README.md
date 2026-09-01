@@ -739,9 +739,12 @@ attachments.
 
 For inbound JSON webhooks, D1 stores the source identity, event type,
 idempotency key, payload SHA-256, and only the explicitly mapped bounded scalar
-variables. It never stores the raw JSON body, source token, Authorization
-header, or other request headers. The token is shown once at creation/rotation;
-only its SHA-256 digest and six-character operator hint remain.
+variables. It never stores the source token, Authorization header, or other
+request headers. The authenticated JSON payload is retained privately with the
+same bounded audit retention as email originals so operators can review a
+received webhook and build mappings/rules after the fact. The token is shown
+once at creation/rotation; only its SHA-256 digest and six-character operator
+hint remain.
 
 CIPP notification webhooks can use the source URL with its one-time token in
 the `token` query parameter because CIPP does not add a custom bearer header.

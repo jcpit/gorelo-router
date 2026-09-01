@@ -2159,8 +2159,11 @@ async function handleProtectedApi(
     const body = await verifiedArchivedArrayBuffer(archived, storage.sha256);
     return new Response(body, {
       headers: {
-        "content-type": "message/rfc822",
-        "content-disposition": `attachment; filename="message-${eventId.replace(/[^a-z0-9-]/gi, "").slice(0, 80) || "event"}.eml"`,
+        "content-type":
+          event.ingress?.type === "webhook"
+            ? "application/json"
+            : "message/rfc822",
+        "content-disposition": `attachment; filename="message-${eventId.replace(/[^a-z0-9-]/gi, "").slice(0, 80) || "event"}.${event.ingress?.type === "webhook" ? "json" : "eml"}"`,
         "content-length": String(body.byteLength),
         "cache-control": "no-store",
         "content-security-policy": "default-src 'none'; sandbox",

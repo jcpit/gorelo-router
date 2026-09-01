@@ -1,4 +1,5 @@
 import { canonicalizeDeliveryPayload } from "./delivery-repository";
+import { archiveRawMessage } from "./archive";
 import { getGoreloCatalog } from "./gorelo-integration";
 import { prepareGoreloActionFromVariables } from "./gorelo-action";
 import {
@@ -767,6 +768,15 @@ export async function handleInboundWebhook(
   );
   const receivedAt = new Date().toISOString();
   const eventId = crypto.randomUUID();
+  const archived = env.MESSAGE_ARCHIVE
+    ? await archiveRawMessage(
+        env.MESSAGE_ARCHIVE,
+        eventId,
+        new TextEncoder().encode(JSON.stringify(body.payload))
+          .buffer as ArrayBuffer,
+        receivedAt,
+      )
+    : undefined;
   const incomingEventType = eventType(request);
   const trace: AuditTraceStep[] = [
     {
@@ -806,6 +816,7 @@ export async function handleInboundWebhook(
           status: "forwarded",
           destination: "audit only",
         }),
+        archived ?? {},
       );
       return { eventId, duplicate: false, status: "forwarded" };
     }
@@ -841,11 +852,16 @@ export async function handleInboundWebhook(
         error: "Webhook delivery is pending",
         destination: `webhook:${action.destinationId}`,
       });
-      await recordEventWithPendingWebhookDelivery(env.DB, pending, {
-        actionType: "send_webhook",
-        payloadSnapshot: payload,
-        ruleSnapshotId: `${found.source.id}:${found.source.updatedAt}`,
-      });
+      await recordEventWithPendingWebhookDelivery(
+        env.DB,
+        pending,
+        {
+          actionType: "send_webhook",
+          payloadSnapshot: payload,
+          ruleSnapshotId: `${found.source.id}:${found.source.updatedAt}`,
+        },
+        archived ?? {},
+      );
       const result = await executeWebhookDelivery(env, config, {
         eventId,
         actionIndex: 0,
@@ -933,16 +949,21 @@ export async function handleInboundWebhook(
       matchedRule: { id: rule.id, name: rule.name },
       destination: `gorelo:${prepared.actionType}`,
     });
-    await recordEventWithPendingStructuredDelivery(env.DB, pending, {
-      actionType: prepared.actionType,
-      payloadSnapshot: {
-        schemaVersion: GORELO_DELIVERY_SCHEMA_VERSION,
-        region: config.goreloRegion,
-        request: prepared.request ?? null,
-        data: prepared.data,
+    await recordEventWithPendingStructuredDelivery(
+      env.DB,
+      pending,
+      {
+        actionType: prepared.actionType,
+        payloadSnapshot: {
+          schemaVersion: GORELO_DELIVERY_SCHEMA_VERSION,
+          region: config.goreloRegion,
+          request: prepared.request ?? null,
+          data: prepared.data,
+        },
+        ruleSnapshotId: `${rule.id}:${rule.updatedAt}`,
       },
-      ruleSnapshotId: `${rule.id}:${rule.updatedAt}`,
-    });
+      archived ?? {},
+    );
     const deliveryInput = {
       eventId,
       actionIndex: 0,

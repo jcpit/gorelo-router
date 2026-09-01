@@ -2397,7 +2397,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
         eventDetail(webhookIngress?"Action template":"Matched rule",event.matchedRuleName||event.matchedRuleId||(webhookIngress?"Source route":"Global/default policy")),eventDetail("Destination",presentation.destinationLabel),eventDetail(webhookIngress?"Idempotency key":"Message ID",event.messageId)
       );
       if (webhookIngress) overviewGrid.append(eventDetail("Event type",event.ingress.eventType||event.subject),eventDetail("Payload SHA-256",event.ingress.payloadDigest||"Not recorded"));
-      overview.append(overviewGrid); if (includeDeliveries&&!webhookIngress) { const actions=node("div",undefined,"review-actions"); const create=node("button","Create rule from this email","btn btn-primary primary small"); create.type="button"; create.setAttribute("aria-label","Create a parser rule from "+(event.subject||"this audited email")); create.onclick=()=>openParserRuleFromAudit(event,create); actions.append(create); if (audit.rawAvailable===true) { const download=node("button","Download archived original (.eml)","btn small"); download.type="button"; download.setAttribute("aria-label","Download archived original message "+(event.subject||"")); download.onclick=()=>downloadAuditRaw(event,download); actions.append(download); } overview.append(actions); } wrap.append(overview);
+      overview.append(overviewGrid); if (includeDeliveries) { const actions=node("div",undefined,"review-actions"); if (!webhookIngress) { const create=node("button","Create rule from this email","btn btn-primary primary small"); create.type="button"; create.setAttribute("aria-label","Create a parser rule from "+(event.subject||"this audited email")); create.onclick=()=>openParserRuleFromAudit(event,create); actions.append(create); } if (audit.rawAvailable===true) { const download=node("button",webhookIngress?"View/download raw webhook JSON":"Download archived original (.eml)","btn small"); download.type="button"; download.onclick=()=>downloadAuditRaw(event,download); actions.append(download); } if (actions.childNodes.length) overview.append(actions); } wrap.append(overview);
 
       const analysis=reviewSection("Policy explanation");
       const threshold=audit.spamThreshold??runtimeConfig?.spamThreshold??"—";
@@ -2423,7 +2423,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       }
 
       const preview=reviewSection(webhookIngress?"Mapped webhook values":"Safe message preview");
-      preview.append(node("p",webhookIngress?"Only explicitly configured scalar mappings are retained. The raw JSON payload and authentication headers are never stored.":"Plain text only. Remote images, active HTML, and embedded content are never loaded in this dashboard.","preview-note"));
+      preview.append(node("p",webhookIngress?"The authenticated webhook JSON is retained privately for the audit retention period so you can build mappings and rules from received events.":"Plain text only. Remote images, active HTML, and embedded content are never loaded in this dashboard.","preview-note"));
       if (audit.bodyPreview) preview.append(node("pre",String(audit.bodyPreview),"message-preview"));
       else preview.append(node("p",runtimeConfig?.features?.rawQuarantine?"No text preview was available for this message.":"Message content is not stored in mailbox-forward quarantine mode.","retention-note"));
       wrap.append(preview);
