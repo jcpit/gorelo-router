@@ -1964,7 +1964,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       byId("conditions").append(row);
       renderConditionValue(row,condition.value,condition.headerName,condition.caseSensitive);
       fieldSelect.onchange=()=>{ fillOperators("equals"); renderConditionValue(row,undefined,"",false); editorDirty=true; };
-      operatorSelect.onchange=()=>{ renderConditionValue(row,undefined,condition.headerName,false); editorDirty=true; };
+      operatorSelect.onchange=()=>{ const control=row.querySelector('[data-role="value"]'); const current=control?.value ?? ""; renderConditionValue(row,current,condition.headerName,Boolean(row.querySelector('[data-role="case"]')?.checked)); editorDirty=true; };
       renumberConditions();
     }
     function readCondition(row) {
