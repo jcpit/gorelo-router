@@ -1105,6 +1105,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
         <section class="panel card" aria-labelledby="auditHeading">
           <div class="panel-header"><div><h2 id="auditHeading" tabindex="-1">Message audit</h2><p>Operational evidence for retained routing decisions. Email-forward statuses mean Cloudflare accepted the action, not final mailbox delivery.</p></div></div>
           <div id="captureBanner" class="capture-banner hidden" role="status" aria-live="polite"></div>
+          <div id="auditTypeTabs" class="mode-switch audit-type-tabs" role="tablist" aria-label="Audit message type"><button id="auditEmailsTab" type="button" role="tab" aria-selected="true">Emails <span id="auditEmailCount">0</span></button><button id="auditWebhooksTab" type="button" role="tab" aria-selected="false">Webhooks <span id="auditWebhookCount">0</span></button></div>
           <div class="filter-bar">
             <div class="form-field"><label for="eventSearch">Search messages</label><input id="eventSearch" class="form-control" type="search" maxlength="200" placeholder="Subject, sender, recipient, rule…"></div>
             <div class="form-field"><label for="eventStatus">Status</label><select id="eventStatus" class="form-select"><option value="all">All statuses</option><option value="forwarded">Completed / email forwarded</option><option value="quarantined">Quarantined</option><option value="dropped">Dropped</option><option value="rejected">Rejected</option><option value="failed">Failed / needs review</option></select></div>
@@ -1445,6 +1446,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     let eventsCache = [];
     let eventsCursor = null;
     let eventsRequestVersion = 0;
+    let auditStream = "emails";
     let eventSearchTimer = null;
     let quarantineCache = [];
     let quarantineCursor = null;
@@ -2768,7 +2770,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     }
     function renderEvents() {
       const container=byId("events"); container.removeAttribute("aria-busy"); container.textContent="";
-      const filtered=eventsCache; const filteredView=Boolean(byId("eventSearch").value.trim())||byId("eventStatus").value!=="all"; byId("loadMoreEvents").classList.toggle("hidden",!eventsCursor);
+      const emails=eventsCache.filter((event)=>event.ingress?.type!=="webhook"); const webhooks=eventsCache.filter((event)=>event.ingress?.type==="webhook"); setText("auditEmailCount",String(emails.length)); setText("auditWebhookCount",String(webhooks.length)); const filtered=(auditStream==="webhooks"?webhooks:emails); const filteredView=Boolean(byId("eventSearch").value.trim())||byId("eventStatus").value!=="all"; byId("loadMoreEvents").classList.toggle("hidden",!eventsCursor);
       if (!filtered.length) { container.append(emptyState("AU",filteredView?"No matching audit events":"No audit events recorded",filteredView?"Try a broader search or another status.":"Retained processing evidence will appear here after the first message.")); return; }
       filtered.forEach((event,index)=>{
         const presentation=auditPresentation(event); const card=node("article",undefined,"event-card"); const button=node("button",undefined,"audit-summary"); button.type="button"; button.setAttribute("aria-expanded","false"); button.setAttribute("aria-controls","audit-detail-"+index);
@@ -2783,6 +2785,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       catch(error) { if (requestVersion!==eventsRequestVersion) return; if (append) { renderEvents(); showError("eventsNotice",error); showToast(error.message,"error"); return; } container.removeAttribute("aria-busy"); container.textContent=""; container.append(emptyState("!","Audit unavailable",error.message,"Try again",loadEvents)); showError("eventsNotice",error); }
     }
     function scheduleEventSearch() { if (eventSearchTimer!==null) clearTimeout(eventSearchTimer); eventSearchTimer=setTimeout(()=>{ eventSearchTimer=null; void loadEvents(); },250); }
+    function setAuditStream(stream) { auditStream=stream==="webhooks"?"webhooks":"emails"; byId("auditEmailsTab").setAttribute("aria-selected",String(auditStream==="emails")); byId("auditWebhooksTab").setAttribute("aria-selected",String(auditStream==="webhooks")); renderEvents(); }
 
     function setTestResultState(state,busy=false) { const result=byId("testResult"); result.className="test-result "+state; result.setAttribute("aria-busy",busy?"true":"false"); result.textContent=""; return result; }
     function renderTestStatus(state,icon,title,copy,status="") { const result=setTestResultState(state,state==="is-evaluating"); const empty=node("div",undefined,"result-empty"); const mark=node("div",undefined,"result-orb"); mark.setAttribute("aria-hidden","true"); mark.append(iconNode(icon)); empty.append(mark,node("h3",title),node("p",copy)); result.append(empty); setText("testResultStatus",status); }
@@ -3398,6 +3401,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     byId("refreshEvents").onclick=()=>runBusy(byId("refreshEvents"),"Refreshing…",loadEvents);
     byId("loadMoreEvents").onclick=()=>runBusy(byId("loadMoreEvents"),"Loading…",()=>loadEvents(true));
     byId("eventSearch").oninput=scheduleEventSearch; byId("eventStatus").onchange=()=>loadEvents();
+    byId("auditEmailsTab").onclick=()=>setAuditStream("emails"); byId("auditWebhooksTab").onclick=()=>setAuditStream("webhooks");
     byId("testForm").onsubmit=(event)=>{ event.preventDefault(); runTest(); };
     byId("testForm").oninput=()=>{ const result=byId("testResult"); if (result.classList.contains("has-result")||result.classList.contains("has-error")) { clearError("testError"); resetTestResult(); } };
     byId("refreshSetup").onclick=()=>runBusy(byId("refreshSetup"),"Refreshing…",async()=>{ try { await loadSetup(); await loadSetupExtensions(true); showToast("Setup status refreshed"); } catch(error) { showToast(error.message,"error"); } });
