@@ -142,6 +142,31 @@ describe("admin dashboard", () => {
     expect(html).not.toContain('name="GORELO_API_KEY"');
   });
 
+  it("configures private inbound webhook sources without retaining raw JSON", async () => {
+    const html = await adminResponse().text();
+
+    expect(html).toContain('id="emailIngressDomains"');
+    expect(html).toContain("Every domain has its own Cloudflare catch-all");
+    expect(html).toContain('id="inboundWebhookSourcesHeading"');
+    expect(html).toContain('id="inboundWebhookSourceForm"');
+    expect(html).toContain('id="inboundWebhookMappings"');
+    expect(html).toContain("JSON Pointer mappings");
+    expect(html).toContain("shown once");
+    expect(html).toContain('id="inboundWebhookTokenTitle"');
+    expect(html).toContain('id="inboundWebhookTokenContext"');
+    expect(html).toContain('api("/api/v1/inbound-webhook-sources")');
+    expect(html).toContain(
+      "The raw JSON payload and authentication headers are never stored",
+    );
+    expect(html).toContain(
+      'setText("saveInboundWebhookSource",source?"Save source":"Create source")',
+    );
+    expect(html).toContain("Existing senders must be updated immediately");
+    expect(html).toContain("function closeInboundWebhookSourceForm");
+    expect(html).toContain("showInboundWebhookToken(data.source,data.token)");
+    expect(html).not.toContain("localStorage");
+  });
+
   it("imports Gorelo clients and manages grouped exact aliases in atomic batches", async () => {
     const html = await adminResponse().text();
 
@@ -257,7 +282,7 @@ describe("admin dashboard", () => {
     );
     expect(html).toContain('parsed.protocol!=="https:"');
     expect(html).toContain(
-      "Promise.allSettled([loadMailboxes(force),loadClientDirectory(force),loadWebhooks(force)])",
+      "Promise.allSettled([loadMailboxes(force),loadClientDirectory(force),loadWebhooks(force),loadInboundWebhookSources(force)])",
     );
     expect(html).toContain('if (name==="setup") void loadSetupExtensions()');
     expect(html).not.toContain("webhookSigningSecret");
@@ -949,7 +974,9 @@ describe("admin dashboard", () => {
   it("offers authenticated archived-original downloads in expanded audits", async () => {
     const html = await adminResponse().text();
 
-    expect(html).toContain("if (includeDeliveries) { const actions=");
+    expect(html).toContain(
+      "if (includeDeliveries&&!webhookIngress) { const actions=",
+    );
     expect(html).toContain("if (audit.rawAvailable===true)");
     expect(html).toContain("Download archived original (.eml)");
     expect(html).toContain("function downloadAuditRaw(event,button)");

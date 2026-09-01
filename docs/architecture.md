@@ -4,7 +4,7 @@
 
 Cloudflare Email Routing owns SMTP receipt and the live
 `ForwardableEmailMessage`. The top-level Wrangler `addresses` declaration makes
-deployment reconcile one `*@domain` catch-all to this Worker; the Worker owns
+deployment reconcile one `*@domain` catch-all per configured inbound domain to this Worker; the Worker owns
 recipient-specific inspection, ordered rule evaluation, named Gorelo mailbox
 resolution, client identity resolution, delivery audit, and routing. An
 explicit Cloudflare Email Routing rule takes precedence over the catch-all, so
@@ -163,6 +163,31 @@ Webhook destinations are registered separately from rules. The server accepts on
 Fields use literal delimiters rather than regular expressions or executable templates. The resulting variable object is bounded and becomes the non-secret D1 delivery snapshot. Each POST includes an event ID, durable delivery/idempotency ID, Unix timestamp, and `v1=` HMAC-SHA256 signature over `timestamp + "." + exact JSON bytes`. The shared signing key exists only as `WEBHOOK_SIGNING_SECRET`.
 
 Delivery uses optimistic claims and immutable attempt rows. Definitive 4xx failures stop. Explicit HTTP `429`/5xx responses receive bounded retry scheduling for at most five total automatic attempts. Network errors and timeouts are `uncertain` and are not automatically resent because request acceptance cannot be disproved. The five-minute cron first reconciles claims abandoned for more than ten minutes to `uncertain`, then processes only due retryable HTTP failures. Destination drift also becomes `uncertain`. Overlapping triggers are safe because only one expected version can claim or reconcile a delivery.
+
+## Inbound webhook ingress
+
+Inbound JSON uses a separate `/hooks/v1/:source-slug` trust boundary rather
+than the admin API or email handler. Each source has a 384-bit token returned
+only at creation or rotation; D1 retains its SHA-256 digest and a short hint.
+Authentication accepts a bearer token or `X-Gorelo-Router-Token`. Bodies must
+be JSON and are capped at 256 KiB, depth 20, 10,000 nodes, and 1,000 children
+per object/array. Credential-like mapping names are rejected.
+
+RFC 6901 JSON Pointer mappings select at most 50 scalar values, each capped at
+4,000 characters. The raw body and request headers are never retained. D1
+stores only the mapped values, source/event identity, payload digest, and
+idempotency key. A sender-provided `Idempotency-Key` or `X-Event-Id` is
+preferred; otherwise the raw-body SHA-256 is used. A unique D1 index makes
+overlapping retries converge on one audit event. Authenticated new requests
+also pass an atomic per-source minute bucket before mapping or delivery.
+
+A source may accept for audit, relay mapped values to an existing signed
+outbound destination, or reuse the Gorelo action from a ticket/alert rule as a
+template. Only that action and its mappings are reused—email conditions and the
+rule's enabled state are irrelevant. Database guards prevent referenced Gorelo
+templates or outbound destinations from being removed or changed to an
+incompatible type. Delivery uses the same persist-before-dispatch ledger and
+uncertain-outcome rules as email-triggered structured actions.
 
 ## Parser teaching and next-message capture
 

@@ -86,16 +86,39 @@ if (
   blockers.push("configure exactly one non-placeholder Custom Domain route");
 }
 const addresses = Array.isArray(config.addresses) ? config.addresses : [];
-const catchAllAddress = addresses.length === 1 ? addresses[0] : undefined;
+const catchAllPattern =
+  /^\*@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
+const invalidCatchAll = addresses.find(
+  (address) =>
+    typeof address !== "string" ||
+    !catchAllPattern.test(address) ||
+    isReservedDeploymentHostname(address.slice(2)),
+);
+const inboundDomains = addresses.map((address) =>
+  typeof address === "string" ? address.slice(2).toLowerCase() : "",
+);
 if (
-  typeof catchAllAddress !== "string" ||
-  !/^\*@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(
-    catchAllAddress,
-  ) ||
-  isReservedDeploymentHostname(catchAllAddress.slice(2))
+  addresses.length === 0 ||
+  invalidCatchAll !== undefined ||
+  new Set(inboundDomains).size !== inboundDomains.length
 ) {
   blockers.push(
-    "configure exactly one non-placeholder *@domain inbound catch-all",
+    "configure one unique non-placeholder *@domain catch-all for every inbound domain",
+  );
+}
+const declaredInboundDomains = String(variables.INBOUND_EMAIL_DOMAINS ?? "")
+  .split(",")
+  .map((domain) => domain.trim().toLowerCase())
+  .filter(Boolean)
+  .sort();
+if (
+  declaredInboundDomains.length !== inboundDomains.length ||
+  declaredInboundDomains.some(
+    (domain, index) => domain !== [...inboundDomains].sort()[index],
+  )
+) {
+  blockers.push(
+    "make INBOUND_EMAIL_DOMAINS exactly match the domains in addresses",
   );
 }
 if (blockers.length > 0) {

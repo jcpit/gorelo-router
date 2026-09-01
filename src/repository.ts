@@ -50,6 +50,13 @@ interface EventRow {
   destination_mailbox_name: string | null;
   status: ProcessingEvent["status"];
   error: string | null;
+  ingress_type: "email" | "webhook";
+  ingress_source_id: string | null;
+  ingress_source_name: string | null;
+  ingress_event_type: string | null;
+  ingress_payload_digest: string | null;
+  ingress_idempotency_key: string | null;
+  ingress_variables_json: string | null;
   created_at: string;
   audit_json: string | null;
   archive_key: string | null;
@@ -87,7 +94,10 @@ const EVENT_SELECT = `SELECT p.id, p.message_id, p.envelope_from, p.envelope_to,
        p.subject, p.raw_size, p.spam_score, p.spam_reasons_json,
        p.decision, p.matched_rule_id, p.matched_rule_name, p.destination,
        p.destination_mailbox_id, p.destination_mailbox_name,
-       p.status, p.error, p.created_at, p.audit_json, p.archive_key,
+       p.status, p.error, p.ingress_type, p.ingress_source_id,
+       p.ingress_source_name, p.ingress_event_type,
+       p.ingress_payload_digest, p.ingress_idempotency_key,
+       p.ingress_variables_json, p.created_at, p.audit_json, p.archive_key,
        q.object_key AS quarantine_object_key,
        q.state AS quarantine_state,
        q.expires_at AS quarantine_expires_at,
@@ -280,6 +290,27 @@ function rowToEvent(
       : {}),
     status: row.status,
     ...(row.error ? { error: row.error } : {}),
+    ingress: {
+      type: row.ingress_type,
+      ...(row.ingress_source_id ? { sourceId: row.ingress_source_id } : {}),
+      ...(row.ingress_source_name
+        ? { sourceName: row.ingress_source_name }
+        : {}),
+      ...(row.ingress_event_type ? { eventType: row.ingress_event_type } : {}),
+      ...(row.ingress_payload_digest
+        ? { payloadDigest: row.ingress_payload_digest }
+        : {}),
+      ...(row.ingress_idempotency_key
+        ? { idempotencyKey: row.ingress_idempotency_key }
+        : {}),
+      ...(row.ingress_variables_json
+        ? {
+            variables: parseStringRecord(
+              parseJson(row.ingress_variables_json, {}),
+            ),
+          }
+        : {}),
+    },
     audit: parseAudit(row.audit_json, row.archive_key !== null),
     ...(quarantine ? { quarantine } : {}),
     createdAt: row.created_at,
@@ -622,8 +653,11 @@ function eventInsertStatement(
           spam_score, spam_reasons_json, decision, matched_rule_id,
           matched_rule_name, destination, destination_mailbox_id,
           destination_mailbox_name, status, error, created_at, audit_json,
-          archive_key, archive_sha256)
-       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          archive_key, archive_sha256, ingress_type, ingress_source_id,
+          ingress_source_name, ingress_event_type, ingress_payload_digest,
+          ingress_idempotency_key, ingress_variables_json)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?, ?, ?
         WHERE ? IS NULL OR EXISTS (
           SELECT 1 FROM parser_captures
            WHERE id = ? AND version = ? AND state = 'claimed'
@@ -651,6 +685,13 @@ function eventInsertStatement(
       JSON.stringify(eventAudit(event)),
       options.objectKey ?? null,
       options.sha256 ?? null,
+      event.ingress?.type ?? "email",
+      event.ingress?.sourceId ?? null,
+      event.ingress?.sourceName ?? null,
+      event.ingress?.eventType ?? null,
+      event.ingress?.payloadDigest ?? null,
+      event.ingress?.idempotencyKey ?? null,
+      event.ingress?.variables ? JSON.stringify(event.ingress.variables) : null,
       capture?.id ?? null,
       capture?.id ?? null,
       capture?.input.expectedVersion ?? null,
@@ -786,6 +827,9 @@ const EVENT_SEARCH_COLUMNS = [
   "p.status",
   "p.error",
   "p.audit_json",
+  "p.ingress_source_name",
+  "p.ingress_event_type",
+  "p.ingress_idempotency_key",
 ] as const;
 
 async function queryEventPage(

@@ -74,6 +74,9 @@ class TestDatabase {
     this.sqlite.exec(
       readFileSync("migrations/0003_parser_captures.sql", "utf8"),
     );
+    this.sqlite.exec(
+      readFileSync("migrations/0004_inbound_webhooks.sql", "utf8"),
+    );
   }
 
   prepare(query: string): D1PreparedStatement {

@@ -6,6 +6,7 @@ export function config(overrides: Partial<RuntimeConfig> = {}): RuntimeConfig {
   const quarantineAddress = "quarantine@example.com";
   return {
     defaultGoreloAddress: defaultAddress,
+    inboundEmailDomains: new Set(["alerts.example.net"]),
     quarantineAddress,
     failureForwardAddress: quarantineAddress,
     quarantineMode: "mailbox",

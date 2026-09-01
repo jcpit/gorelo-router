@@ -43,6 +43,7 @@ persistent default.
 | `from_domain`     | Domain of the envelope sender                     | No                    |
 | `to`              | Envelope recipient, including `+detail`           | No                    |
 | `to_local_part`   | Recipient local part, including `+detail`         | No                    |
+| `to_domain`       | Lower-cased domain of the envelope recipient      | No                    |
 | `subject`         | Decoded subject                                   | No                    |
 | `header`          | Named header; set `headerName`                    | No                    |
 | `message_size`    | Raw message size in bytes                         | No                    |

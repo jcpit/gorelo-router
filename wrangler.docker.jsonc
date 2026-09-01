@@ -38,6 +38,7 @@
   ],
   "vars": {
     "DEFAULT_GORELO_ADDRESS": "replace-with-your-gorelo-forwarding-address@example.com",
+    "INBOUND_EMAIL_DOMAINS": "alerts.example.net",
     "ALLOWED_FORWARD_DOMAINS": "",
     "ALLOWED_FORWARD_DESTINATIONS": "",
     "RELEASE_FROM_ADDRESS": "replace-with-release-sender@example.com",

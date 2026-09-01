@@ -31,7 +31,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     *::-webkit-scrollbar-thumb:hover { background:#718198; background-clip:padding-box; }
     ::selection { color:var(--navigation-contrast); background:var(--brand); }
     html { min-height:100%; background:var(--canvas); }
-    body { min-height:100vh; margin:0; font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--ink); background:var(--canvas); }
+    body { min-height:100vh; margin:0; font:14px/1.5 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--ink); background:var(--canvas); }
     button,input,select,textarea { font:inherit; }
     input,select,textarea { caret-color:var(--brand); }
     button,input,select,textarea,summary { -webkit-tap-highlight-color:transparent; }
@@ -426,9 +426,9 @@ const ADMIN_HTML = String.raw`<!doctype html>
     .trainer-create-line button { white-space:nowrap; }
     .trainer-template { min-height:132px; padding:13px 14px; overflow:auto; border:1px solid #263956; border-radius:11px; color:#e7eef9; background:#14233a; font:12px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace; }
     .trainer-template-section + .trainer-template-section { margin-top:12px; padding-top:11px; border-top:1px solid #344660; }
-    .trainer-template-label { display:block; margin-bottom:4px; color:#9fb0c8; font:700 10px/1.4 Inter,ui-sans-serif,system-ui,sans-serif; letter-spacing:.04em; text-transform:uppercase; }
+    .trainer-template-label { display:block; margin-bottom:4px; color:#9fb0c8; font:700 10px/1.4 ui-sans-serif,system-ui,sans-serif; letter-spacing:.04em; text-transform:uppercase; }
     .trainer-template mark { padding:2px 4px; border-radius:5px; color:#fff; background:#2864c7; font-weight:800; }
-    .trainer-template-empty { color:#b7c3d4; font-family:Inter,ui-sans-serif,system-ui,sans-serif; }
+    .trainer-template-empty { color:#b7c3d4; font-family:ui-sans-serif,system-ui,sans-serif; }
     .trainer-captures { display:grid; margin:0; padding:0; list-style:none; }
     .trainer-capture { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:3px 8px; padding:10px 0; border-top:1px solid var(--line); }
     .trainer-capture:first-child { border-top:0; padding-top:0; }
@@ -586,11 +586,34 @@ const ADMIN_HTML = String.raw`<!doctype html>
     .mailbox-form-heading h4 { margin:0; font-size:13px; }
     .mailbox-form-heading p { margin:2px 0 0; color:var(--muted); font-size:10px; }
     .mailbox-form .inline-check { align-self:center; }
+    .source-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .source-row { min-width:0; display:grid; gap:9px; padding:12px; border:1px solid var(--line); border-radius:11px; background:#fafcff; }
+    .source-row-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+    .source-row-heading h4 { margin:0; font-size:13px; }
+    .source-row-heading p { margin:3px 0 0; color:var(--muted); font:10px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
+    .source-row-meta { display:flex; gap:6px; flex-wrap:wrap; }
+    .source-row-actions { display:flex; justify-content:flex-end; gap:6px; flex-wrap:wrap; padding-top:8px; border-top:1px solid var(--line); }
+    .source-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; align-items:start; margin-top:12px; padding:14px; border:1px solid #b9c9df; border-radius:11px; background:#f8fbff; }
+    .source-form-heading,.source-form .source-mappings,.source-form .error,.source-form .form-actions { grid-column:1/-1; }
+    .source-form-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+    .source-form-heading h4 { margin:0; font-size:13px; }
+    .source-form-heading p { margin:2px 0 0; color:var(--muted); font-size:10px; }
+    .input-prefix { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:stretch; }
+    .input-prefix span { display:flex; align-items:center; padding:0 9px; border:1px solid #9caec4; border-right:0; border-radius:8px 0 0 8px; color:var(--muted); background:#edf2f8; font:11px ui-monospace,SFMono-Regular,Consolas,monospace; }
+    .input-prefix input { border-radius:0 8px 8px 0; }
+    .source-token { display:grid; grid-template-columns:minmax(180px,.6fr) minmax(0,1fr) auto; gap:10px; align-items:center; margin-bottom:12px; padding:12px; border:1px solid #9bc6ae; border-radius:11px; color:#245c3c; background:#f0fbf5; }
+    .source-token strong,.source-token span { display:block; }
+    .source-token span { margin-top:2px; font-size:10px; }
+    .source-token code { min-width:0; padding:8px 9px; overflow:auto; border-radius:8px; color:#e7eef9; background:#14233a; white-space:nowrap; }
     .compact-card-heading { align-items:center; }
     .compact-card-heading .toolbar { flex:0 0 auto; }
     .directory-toolbar { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:9px; align-items:end; margin-bottom:12px; }
     .directory-status { margin:0; color:var(--muted); font-size:11px; text-align:right; }
     .compact-list { display:grid; gap:8px; }
+    .compact-row { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:center; padding:11px 12px; border:1px solid var(--line); border-radius:11px; background:#fafcff; }
+    .compact-row-copy { min-width:0; }
+    .compact-row-copy strong,.compact-row-copy span { display:block; overflow-wrap:anywhere; }
+    .compact-row-copy span { margin-top:3px; color:var(--muted); font:11px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace; }
     .client-directory-list,.webhook-list { max-height:440px; overflow:auto; padding-right:2px; }
     .directory-row,.webhook-row { min-width:0; padding:12px; border:1px solid var(--line); border-radius:11px; background:#fafcff; }
     .directory-row-heading,.webhook-row-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
@@ -658,7 +681,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       .test-result { position:static; }
       .setup-grid { grid-template-columns:1fr; }
       .setup-extensions { grid-template-columns:1fr; }
-      .mailbox-list { grid-template-columns:1fr; }
+      .mailbox-list,.source-list { grid-template-columns:1fr; }
       .quarantine-layout { grid-template-columns:minmax(250px,.8fr) minmax(0,1.2fr); }
       .review-detail-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
       dialog.trainer-dialog { height:calc(100dvh - 20px); }
@@ -735,8 +758,10 @@ const ADMIN_HTML = String.raw`<!doctype html>
       .attempt-item time,.attempt-item p { grid-column:1; }
       .setup-hero { align-items:flex-start; flex-direction:column; }
       .setup-profile { text-align:left; }
-      .inline-setup-form,.alias-resolution-form,.webhook-form-grid,.mailbox-form { grid-template-columns:1fr; }
+      .inline-setup-form,.alias-resolution-form,.webhook-form-grid,.mailbox-form,.source-form { grid-template-columns:1fr; }
       .mailbox-form-heading,.mailbox-form .form-actions,.mailbox-form .error { grid-column:auto; }
+      .source-form-heading,.source-form .source-mappings,.source-form .error,.source-form .form-actions { grid-column:auto; }
+      .source-token { grid-template-columns:1fr; }
       .mailbox-row { grid-template-columns:1fr; }
       .mailbox-actions { justify-content:flex-start; }
       .capture-banner,.parser-capture-actions { align-items:stretch; flex-direction:column; }
@@ -1116,6 +1141,11 @@ const ADMIN_HTML = String.raw`<!doctype html>
                 <div class="setup-card-heading"><div><h3 id="setupChecklistHeading">Readiness checklist</h3><p>Required and optional deployment checks reported by the Worker.</p></div></div>
                 <div id="setupChecks" class="setup-checks" aria-busy="true"></div>
               </section>
+              <section class="setup-card" aria-labelledby="emailIngressHeading">
+                <div class="setup-card-heading"><div><h3 id="emailIngressHeading">Inbound email domains</h3><p>Every domain has its own Cloudflare catch-all; all messages enter this shared rules and audit engine.</p></div><span id="emailIngressCount" class="setup-state optional">Checking</span></div>
+                <div id="emailIngressDomains" class="compact-list" aria-live="polite"></div>
+                <p class="field-help">Rules can match <strong>Recipient domain</strong> when domains need different routing behavior.</p>
+              </section>
               <section class="setup-card" aria-labelledby="goreloSetupHeading">
                 <div class="setup-card-heading"><div><h3 id="goreloSetupHeading">Gorelo integration</h3><p>Connection metadata only. Secrets remain in Cloudflare.</p></div><span id="goreloConfiguredBadge" class="setup-state">Checking</span></div>
                 <div class="integration-details">
@@ -1149,6 +1179,34 @@ const ADMIN_HTML = String.raw`<!doctype html>
                   <div class="inline-check"><input id="mailboxEnabled" type="checkbox" checked><label for="mailboxEnabled">Enable this mailbox for routing</label></div>
                   <p id="mailboxFormError" class="error" role="alert" aria-live="assertive"></p>
                   <div class="form-actions"><button id="cancelMailbox" class="btn small" type="button">Cancel</button><button id="saveMailbox" class="btn btn-primary primary small" type="submit">Save mailbox</button></div>
+                </form>
+              </section>
+
+              <section class="setup-card mailbox-card" aria-labelledby="inboundWebhookSourcesHeading">
+                <div class="setup-card-heading compact-card-heading">
+                  <div><h3 id="inboundWebhookSourcesHeading">Inbound webhook sources</h3><p>Give each sending system a private endpoint and token, map only the JSON values you need, then route them to Gorelo or a signed destination.</p></div>
+                  <div class="toolbar"><button id="addInboundWebhookSource" class="btn small" type="button">+ Source</button></div>
+                </div>
+                <p id="inboundWebhookSourceNotice" class="error" role="alert" aria-live="assertive"></p>
+                <div id="inboundWebhookToken" class="source-token hidden" role="status" aria-live="polite">
+                  <div><strong id="inboundWebhookTokenTitle">Save this source token now</strong><span id="inboundWebhookTokenContext">It is shown once. Gorelo Router stores only its SHA-256 digest.</span></div>
+                  <code id="inboundWebhookTokenValue"></code>
+                  <button id="copyInboundWebhookToken" class="btn small" type="button">Copy token</button>
+                </div>
+                <div id="inboundWebhookSourceList" class="compact-list source-list" aria-live="polite"></div>
+                <form id="inboundWebhookSourceForm" class="source-form hidden" aria-labelledby="inboundWebhookSourceFormHeading">
+                  <div class="source-form-heading"><div><h4 id="inboundWebhookSourceFormHeading">Add webhook source</h4><p>The endpoint accepts JSON POST requests authenticated by bearer token.</p></div><span id="inboundWebhookSourceFormMode" class="setup-state optional">New</span></div>
+                  <div class="form-field"><label for="inboundWebhookSourceName">Source name</label><input id="inboundWebhookSourceName" maxlength="120" required autocomplete="off" placeholder="Monitoring platform"></div>
+                  <div class="form-field"><label for="inboundWebhookSourceSlug">Endpoint path</label><div class="input-prefix"><span>/hooks/v1/</span><input id="inboundWebhookSourceSlug" maxlength="64" required autocomplete="off" spellcheck="false" placeholder="monitoring-platform"></div></div>
+                  <div class="form-field"><label for="inboundWebhookSourceAction">Route action</label><select id="inboundWebhookSourceAction"><option value="accept">Audit only</option><option value="send_webhook">Send signed webhook</option><option value="gorelo_rule">Create in Gorelo from rule action</option></select></div>
+                  <div class="form-field"><label for="inboundWebhookRateLimit">Requests per minute</label><input id="inboundWebhookRateLimit" type="number" min="1" max="1000" step="1" value="60" required></div>
+                  <div id="inboundWebhookDestinationGroup" class="form-field hidden"><label for="inboundWebhookDestination">Outbound destination</label><select id="inboundWebhookDestination"><option value="">Select a registered destination</option></select></div>
+                  <div id="inboundWebhookRuleGroup" class="form-field hidden"><label for="inboundWebhookRule">Gorelo action template</label><select id="inboundWebhookRule"><option value="">Select a ticket or alert rule</option></select><span class="field-help">Only the rule's Gorelo action and templates are reused; its email conditions and enabled state are ignored.</span></div>
+                  <div id="inboundWebhookEventTypeGroup" class="form-field hidden"><label for="inboundWebhookEventType">Outbound event type</label><input id="inboundWebhookEventType" maxlength="128" value="webhook.routed" spellcheck="false"></div>
+                  <div class="form-field source-mappings"><label for="inboundWebhookMappings">JSON Pointer mappings</label><textarea id="inboundWebhookMappings" rows="5" required spellcheck="false" placeholder="customer! = /client/name&#10;device = /asset/hostname&#10;details = /message"></textarea><span class="field-help">One <code>variable = /json/pointer</code> per line. Add <code>!</code> after the variable to reject requests when it is missing.</span></div>
+                  <div class="inline-check"><input id="inboundWebhookSourceEnabled" type="checkbox" checked><label for="inboundWebhookSourceEnabled">Accept requests from this source</label></div>
+                  <p id="inboundWebhookSourceFormError" class="error" role="alert" aria-live="assertive"></p>
+                  <div class="form-actions"><button id="cancelInboundWebhookSource" class="btn small" type="button">Cancel</button><button id="saveInboundWebhookSource" class="btn btn-primary primary small" type="submit">Create source</button></div>
                 </form>
               </section>
 
@@ -1400,6 +1458,11 @@ const ADMIN_HTML = String.raw`<!doctype html>
     let webhooksLoaded = false;
     let webhooksLoading = false;
     let editingWebhookId = null;
+    let inboundWebhookSources = [];
+    let inboundWebhookSourcesLoaded = false;
+    let inboundWebhookSourcesLoading = false;
+    let inboundWebhookSourceInvoker = null;
+    let editingInboundWebhookSourceId = null;
     let activeRequests = 0;
     let commandInvoker = null;
     let commandRestoreFocus = true;
@@ -1443,7 +1506,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       quarantine: { name:"Quarantine executable attachments", description:"Hold messages containing executable-looking attachment names", priority:10, enabled:true, match:"all", conditions:[{field:"attachment_name",operator:"ends_with",value:".exe",caseSensitive:false}], action:{type:"quarantine"} }
     };
     const fields = [
-      ["from","Envelope sender","string"],["from_domain","Sender domain","string"],["to","Envelope recipient","string"],["to_local_part","Recipient local part","string"],
+      ["from","Envelope sender","string"],["from_domain","Sender domain","string"],["to","Envelope recipient","string"],["to_local_part","Recipient local part","string"],["to_domain","Recipient domain","string"],
       ["subject","Subject","string"],["header","Header","string"],["message_size","Message size","number"],["spam_score","Spam score","number"],
       ["body_text","Body text","string"],["attachment_name","Attachment name","string"],["has_attachments","Has attachments","boolean"]
     ];
@@ -2325,15 +2388,16 @@ const ADMIN_HTML = String.raw`<!doctype html>
       section.append(list); return section;
     }
     function buildReviewBody(event,includeDeliveries=false) {
-      const audit=event.audit||{}; const presentation=auditPresentation(event); const wrap=node("div",undefined,"review-body");
-      const overview=reviewSection("Message and routing");
+      const audit=event.audit||{}; const presentation=auditPresentation(event); const wrap=node("div",undefined,"review-body"); const webhookIngress=event.ingress?.type==="webhook";
+      const overview=reviewSection(webhookIngress?"Webhook and routing":"Message and routing");
       const overviewGrid=node("div",undefined,"review-detail-grid");
       overviewGrid.append(
-        eventDetail("Envelope sender",event.envelopeFrom),eventDetail("Envelope recipient",event.envelopeTo),eventDetail("Received",formatDate(event.createdAt)),
-        eventDetail("Decision",presentation.decisionLabel),eventDetail("Action status",presentation.statusLabel),eventDetail("Message size",formatBytes(event.rawSize)),
-        eventDetail("Matched rule",event.matchedRuleName||event.matchedRuleId||"Global/default policy"),eventDetail("Destination",presentation.destinationLabel),eventDetail("Message ID",event.messageId)
+        eventDetail(webhookIngress?"Source":"Envelope sender",webhookIngress?(event.ingress.sourceName||event.envelopeFrom):event.envelopeFrom),eventDetail(webhookIngress?"Endpoint":"Envelope recipient",event.envelopeTo),eventDetail("Received",formatDate(event.createdAt)),
+        eventDetail("Decision",presentation.decisionLabel),eventDetail("Action status",presentation.statusLabel),eventDetail(webhookIngress?"Payload size":"Message size",formatBytes(event.rawSize)),
+        eventDetail(webhookIngress?"Action template":"Matched rule",event.matchedRuleName||event.matchedRuleId||(webhookIngress?"Source route":"Global/default policy")),eventDetail("Destination",presentation.destinationLabel),eventDetail(webhookIngress?"Idempotency key":"Message ID",event.messageId)
       );
-      overview.append(overviewGrid); if (includeDeliveries) { const actions=node("div",undefined,"review-actions"); const create=node("button","Create rule from this email","btn btn-primary primary small"); create.type="button"; create.setAttribute("aria-label","Create a parser rule from "+(event.subject||"this audited email")); create.onclick=()=>openParserRuleFromAudit(event,create); actions.append(create); if (audit.rawAvailable===true) { const download=node("button","Download archived original (.eml)","btn small"); download.type="button"; download.setAttribute("aria-label","Download archived original message "+(event.subject||"")); download.onclick=()=>downloadAuditRaw(event,download); actions.append(download); } overview.append(actions); } wrap.append(overview);
+      if (webhookIngress) overviewGrid.append(eventDetail("Event type",event.ingress.eventType||event.subject),eventDetail("Payload SHA-256",event.ingress.payloadDigest||"Not recorded"));
+      overview.append(overviewGrid); if (includeDeliveries&&!webhookIngress) { const actions=node("div",undefined,"review-actions"); const create=node("button","Create rule from this email","btn btn-primary primary small"); create.type="button"; create.setAttribute("aria-label","Create a parser rule from "+(event.subject||"this audited email")); create.onclick=()=>openParserRuleFromAudit(event,create); actions.append(create); if (audit.rawAvailable===true) { const download=node("button","Download archived original (.eml)","btn small"); download.type="button"; download.setAttribute("aria-label","Download archived original message "+(event.subject||"")); download.onclick=()=>downloadAuditRaw(event,download); actions.append(download); } overview.append(actions); } wrap.append(overview);
 
       const analysis=reviewSection("Policy explanation");
       const threshold=audit.spamThreshold??runtimeConfig?.spamThreshold??"—";
@@ -2358,8 +2422,8 @@ const ADMIN_HTML = String.raw`<!doctype html>
         section.append(list); wrap.append(section);
       }
 
-      const preview=reviewSection("Safe message preview");
-      preview.append(node("p","Plain text only. Remote images, active HTML, and embedded content are never loaded in this dashboard.","preview-note"));
+      const preview=reviewSection(webhookIngress?"Mapped webhook values":"Safe message preview");
+      preview.append(node("p",webhookIngress?"Only explicitly configured scalar mappings are retained. The raw JSON payload and authentication headers are never stored.":"Plain text only. Remote images, active HTML, and embedded content are never loaded in this dashboard.","preview-note"));
       if (audit.bodyPreview) preview.append(node("pre",String(audit.bodyPreview),"message-preview"));
       else preview.append(node("p",runtimeConfig?.features?.rawQuarantine?"No text preview was available for this message.":"Message content is not stored in mailbox-forward quarantine mode.","retention-note"));
       wrap.append(preview);
@@ -2678,6 +2742,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       byId("setupChecks").textContent=""; byId("setupChecks").setAttribute("aria-busy","true");
       setText("goreloRegion","—"); setText("goreloSecretName","—"); setText("goreloEndpoint","—"); setText("setupCommand","Loading secure setup command…");
       const badge=byId("goreloConfiguredBadge"); badge.textContent="Checking"; badge.className="setup-state";
+      const ingressList=byId("emailIngressDomains"); ingressList.textContent=""; ingressList.append(emptyState("@","Checking inbound domains","Loading configured Cloudflare catch-alls.")); const ingressBadge=byId("emailIngressCount"); ingressBadge.textContent="Checking"; ingressBadge.className="setup-state optional";
       byId("goreloTestResult").classList.add("hidden"); byId("goreloCatalogCounts").textContent=""; byId("copySetupCommand").disabled=true; byId("testGorelo").disabled=true;
       byId("setupContent").removeAttribute("aria-busy"); clearError("setupNotice");
     }
@@ -2700,6 +2765,9 @@ const ADMIN_HTML = String.raw`<!doctype html>
         const copy=node("div",undefined,"setup-check-copy"); copy.append(node("strong",check.label),node("span",check.detail));
         row.append(icon,copy,node("span",titleCase(check.status),"setup-state "+check.status)); checks.append(row);
       });
+      const ingress=setup.emailIngress||{domains:[],catchAllAddresses:[]}; const ingressList=byId("emailIngressDomains"); ingressList.textContent=""; const ingressBadge=byId("emailIngressCount"); ingressBadge.textContent=ingress.domains.length+" domain"+(ingress.domains.length===1?"":"s"); ingressBadge.className="setup-state "+(ingress.domains.length?"optional":"missing");
+      if (!ingress.domains.length) ingressList.append(emptyState("@","No inbound domains configured","Set INBOUND_EMAIL_DOMAINS and add matching *@domain entries to addresses."));
+      ingress.domains.forEach((domain,index)=>{ const row=node("div",undefined,"compact-row"); const copy=node("div",undefined,"compact-row-copy"); copy.append(node("strong",domain),node("span",ingress.catchAllAddresses[index]||("*@"+domain))); row.append(copy,node("span","Declared","setup-state optional")); ingressList.append(row); });
       const gorelo=setup.gorelo; const badge=byId("goreloConfiguredBadge"); badge.textContent=gorelo.configured?"Configured":"Not configured"; badge.className="setup-state "+(gorelo.configured?"ready":"missing");
       setText("goreloRegion",gorelo.region.toUpperCase()); setText("goreloSecretName",gorelo.secretName); setText("goreloEndpoint",gorelo.baseUrl); setText("setupCommand",gorelo.setupCommand);
       byId("copySetupCommand").disabled=!gorelo.setupCommand; byId("testGorelo").disabled=!gorelo.configured; byId("testGorelo").title=gorelo.configured?"Verify Gorelo API access":"Set the Gorelo secret, then refresh setup before testing";
@@ -2955,6 +3023,60 @@ const ADMIN_HTML = String.raw`<!doctype html>
       catch(error) { if (error&&error.status===409) await loadMailboxes(true); showError("mailboxNotice",error); showToast(error.message,"error"); }
     }
 
+    function validInboundWebhookSource(source) {
+      return source&&typeof source.id==="string"&&typeof source.name==="string"&&typeof source.slug==="string"&&typeof source.enabled==="boolean"&&Array.isArray(source.mappings)&&source.mappings.length>=1&&source.mappings.length<=50&&source.action&&typeof source.action.type==="string"&&Number.isSafeInteger(source.rateLimitPerMinute)&&source.rateLimitPerMinute>=1&&source.rateLimitPerMinute<=1000&&typeof source.tokenHint==="string"&&source.tokenHint.length===6&&Number.isSafeInteger(source.version)&&source.version>=1&&typeof source.createdAt==="string"&&typeof source.updatedAt==="string"&&source.endpointPath==="/hooks/v1/"+source.slug;
+    }
+    function inboundWebhookActionLabel(action) {
+      if (action.type==="accept") return "Audit only";
+      if (action.type==="send_webhook") { const destination=webhooks.find((item)=>item.id===action.destinationId); return "Signed webhook → "+(destination?.name||action.destinationId); }
+      const template=rulesCache.find((rule)=>rule.id===action.ruleId); return "Gorelo → "+(template?.name||"unavailable rule action");
+    }
+    function populateInboundWebhookOptions(source) {
+      const destination=byId("inboundWebhookDestination"); const wantedDestination=source?.action?.type==="send_webhook"?source.action.destinationId:destination.value; destination.textContent=""; destination.append(makeOption("","Select a registered destination")); webhooks.filter((item)=>item.enabled).forEach((item)=>destination.append(makeOption(item.id,item.name+" · "+item.url))); destination.value=wantedDestination||"";
+      const rule=byId("inboundWebhookRule"); const wantedRule=source?.action?.type==="gorelo_rule"?source.action.ruleId:rule.value; rule.textContent=""; rule.append(makeOption("","Select a ticket or alert rule")); rulesCache.filter((item)=>item.action.type==="create_ticket"||item.action.type==="create_alert").forEach((item)=>rule.append(makeOption(item.id,item.name+" · "+(item.action.type==="create_ticket"?"ticket":"alert")))); rule.value=wantedRule||"";
+    }
+    function updateInboundWebhookActionFields() {
+      const action=byId("inboundWebhookSourceAction").value; byId("inboundWebhookDestinationGroup").classList.toggle("hidden",action!=="send_webhook"); byId("inboundWebhookEventTypeGroup").classList.toggle("hidden",action!=="send_webhook"); byId("inboundWebhookRuleGroup").classList.toggle("hidden",action!=="gorelo_rule"); byId("inboundWebhookDestination").required=action==="send_webhook"; byId("inboundWebhookRule").required=action==="gorelo_rule";
+    }
+    function mappingLines(mappings) { return mappings.map((mapping)=>mapping.key+(mapping.required?"!":"")+" = "+mapping.pointer).join("\n"); }
+    function parseInboundWebhookMappings() {
+      const lines=byId("inboundWebhookMappings").value.split(/\r?\n/).map((line)=>line.trim()).filter(Boolean); if (!lines.length||lines.length>50) throw new Error("Add between 1 and 50 JSON Pointer mappings."); const seen=new Set(); return lines.map((line,index)=>{ const match=line.match(/^([A-Za-z_][A-Za-z0-9_]{0,63})(!)?\s*=\s*(\/.+)$/); if (!match) throw new Error("Mapping line "+(index+1)+" must use variable = /json/pointer."); const key=match[1]; if (seen.has(key)) throw new Error("Mapping variable "+key+" is duplicated."); seen.add(key); if (/~(?:[^01]|$)/.test(match[3])) throw new Error("Mapping line "+(index+1)+" has an invalid JSON Pointer escape."); return {key,pointer:match[3],required:Boolean(match[2]),maxCharacters:4000}; });
+    }
+    function resetInboundWebhookSourceForm() {
+      editingInboundWebhookSourceId=null; byId("inboundWebhookSourceForm").classList.add("hidden"); setText("inboundWebhookSourceFormHeading","Add webhook source"); setText("inboundWebhookSourceFormMode","New"); setText("saveInboundWebhookSource","Create source"); byId("inboundWebhookSourceName").value=""; byId("inboundWebhookSourceSlug").value=""; byId("inboundWebhookSourceAction").value="accept"; byId("inboundWebhookRateLimit").value="60"; byId("inboundWebhookEventType").value="webhook.routed"; byId("inboundWebhookMappings").value="customer! = /client/name\ndetails = /message"; byId("inboundWebhookSourceEnabled").checked=true; clearError("inboundWebhookSourceFormError"); updateInboundWebhookActionFields();
+    }
+    function closeInboundWebhookSourceForm(restoreFocus=true) { const invoker=inboundWebhookSourceInvoker; inboundWebhookSourceInvoker=null; resetInboundWebhookSourceForm(); if (restoreFocus) requestAnimationFrame(()=>{ if (invoker&&document.contains(invoker)) invoker.focus(); else byId("addInboundWebhookSource").focus(); }); }
+    function showInboundWebhookToken(source,tokenValue) { setText("inboundWebhookTokenTitle","Save token for "+source.name); setText("inboundWebhookTokenContext",location.origin+source.endpointPath+" · shown once; only its SHA-256 digest is stored."); setText("inboundWebhookTokenValue",tokenValue); byId("inboundWebhookToken").classList.remove("hidden"); byId("copyInboundWebhookToken").focus(); }
+    function resetInboundWebhookSources() {
+      inboundWebhookSources=[]; inboundWebhookSourcesLoaded=false; inboundWebhookSourcesLoading=false; inboundWebhookSourceInvoker=null; resetInboundWebhookSourceForm(); byId("inboundWebhookToken").classList.add("hidden"); clearError("inboundWebhookSourceNotice"); const list=byId("inboundWebhookSourceList"); list.textContent=""; list.removeAttribute("aria-busy"); list.append(emptyState("api","Sources not loaded","Open Setup to load authenticated webhook sources."));
+    }
+    function renderInboundWebhookSources() {
+      const list=byId("inboundWebhookSourceList"); list.textContent=""; list.removeAttribute("aria-busy"); populateInboundWebhookOptions();
+      if (!inboundWebhookSources.length) { list.append(emptyState("api","No inbound webhook sources","Create a private endpoint for a monitoring platform, form, or automation system.","Add source",(event)=>openInboundWebhookSourceForm(null,event?.currentTarget))); return; }
+      inboundWebhookSources.forEach((source)=>{ const row=node("article",undefined,"source-row"); const heading=node("div",undefined,"source-row-heading"); const copy=node("div"); copy.append(node("h4",source.name),node("p",location.origin+source.endpointPath)); heading.append(copy,node("span",source.enabled?"Active":"Paused","setup-state "+(source.enabled?"ready":"optional"))); const meta=node("div",undefined,"source-row-meta"); meta.append(node("span",inboundWebhookActionLabel(source.action),"chip"),node("span",source.mappings.length+" mapped value"+(source.mappings.length===1?"":"s"),"chip"),node("span",source.rateLimitPerMinute+"/min","chip"),node("span","Token …"+source.tokenHint,"chip")); const actions=node("div",undefined,"source-row-actions"); const edit=node("button","Edit","btn small"); edit.type="button"; edit.onclick=()=>openInboundWebhookSourceForm(source,edit); const rotate=node("button","Rotate token","btn small"); rotate.type="button"; rotate.onclick=()=>rotateInboundWebhookToken(source,rotate); const remove=node("button","Delete","btn danger small"); remove.type="button"; remove.onclick=()=>deleteInboundWebhookSource(source,remove); actions.append(edit,rotate,remove); row.append(heading,meta,actions); list.append(row); });
+    }
+    async function loadInboundWebhookSources(force=false) {
+      if (inboundWebhookSourcesLoading||(!force&&inboundWebhookSourcesLoaded)) return; inboundWebhookSourcesLoading=true; clearError("inboundWebhookSourceNotice"); loading(byId("inboundWebhookSourceList"));
+      try { const data=await api("/api/v1/inbound-webhook-sources"); if (!Array.isArray(data&&data.sources)||!data.sources.every(validInboundWebhookSource)) throw new Error("The Worker returned an invalid webhook source directory."); inboundWebhookSources=data.sources; inboundWebhookSourcesLoaded=true; renderInboundWebhookSources(); }
+      catch(error) { inboundWebhookSourcesLoaded=false; const list=byId("inboundWebhookSourceList"); list.textContent=""; list.removeAttribute("aria-busy"); list.append(emptyState("!","Webhook sources unavailable","Refresh after applying the current D1 migrations.","Retry",()=>loadInboundWebhookSources(true))); showError("inboundWebhookSourceNotice",error); }
+      finally { inboundWebhookSourcesLoading=false; }
+    }
+    function openInboundWebhookSourceForm(source,invoker=document.activeElement) {
+      inboundWebhookSourceInvoker=invoker; editingInboundWebhookSourceId=source?.id||null; setText("inboundWebhookSourceFormHeading",source?"Edit webhook source":"Add webhook source"); setText("inboundWebhookSourceFormMode",source?"Editing":"New"); setText("saveInboundWebhookSource",source?"Save source":"Create source"); byId("inboundWebhookSourceName").value=source?.name||""; byId("inboundWebhookSourceSlug").value=source?.slug||""; byId("inboundWebhookSourceAction").value=source?.action?.type||"accept"; byId("inboundWebhookRateLimit").value=String(source?.rateLimitPerMinute||60); byId("inboundWebhookEventType").value=source?.action?.type==="send_webhook"?source.action.eventType:"webhook.routed"; byId("inboundWebhookMappings").value=source?mappingLines(source.mappings):"customer! = /client/name\ndetails = /message"; byId("inboundWebhookSourceEnabled").checked=source?source.enabled:true; populateInboundWebhookOptions(source); updateInboundWebhookActionFields(); clearError("inboundWebhookSourceFormError"); byId("inboundWebhookSourceForm").classList.remove("hidden"); byId("inboundWebhookSourceName").focus();
+    }
+    async function saveInboundWebhookSource() {
+      clearError("inboundWebhookSourceFormError"); if (!byId("inboundWebhookSourceForm").reportValidity()) return; const current=editingInboundWebhookSourceId?inboundWebhookSources.find((source)=>source.id===editingInboundWebhookSourceId):null; if (editingInboundWebhookSourceId&&!current) { showError("inboundWebhookSourceFormError",new Error("This source changed. Refresh Setup and try again.")); return; } let mappings; try { mappings=parseInboundWebhookMappings(); } catch(error) { showError("inboundWebhookSourceFormError",error); return; } const type=byId("inboundWebhookSourceAction").value; let action={type:"accept"}; if (type==="send_webhook") action={type,destinationId:byId("inboundWebhookDestination").value,eventType:byId("inboundWebhookEventType").value.trim()}; else if (type==="gorelo_rule") action={type,ruleId:byId("inboundWebhookRule").value}; const body={name:byId("inboundWebhookSourceName").value.trim(),slug:byId("inboundWebhookSourceSlug").value.trim().toLowerCase(),enabled:byId("inboundWebhookSourceEnabled").checked,mappings,action,rateLimitPerMinute:Number(byId("inboundWebhookRateLimit").value),...(current?{version:current.version}:{})}; if (current&&current.slug!==body.slug&&!window.confirm("Change this live endpoint from /hooks/v1/"+current.slug+" to /hooks/v1/"+body.slug+"? Existing senders must be updated immediately.")) return;
+      try { await runBusy(byId("saveInboundWebhookSource"),"Saving…",async()=>{ const data=await api(current?"/api/v1/inbound-webhook-sources/"+encodeURIComponent(current.id):"/api/v1/inbound-webhook-sources",{method:current?"PUT":"POST",body:JSON.stringify(body)}); const source=data&&data.source; if (!validInboundWebhookSource(source)) throw new Error("The Worker returned an invalid webhook source."); if (!current) { if (typeof data.token!=="string"||data.token.length<40) throw new Error("The Worker did not return the one-time source token."); showInboundWebhookToken(source,data.token); } await loadInboundWebhookSources(true); }); closeInboundWebhookSourceForm(Boolean(current)); showToast(current?"Webhook source updated":"Webhook source created — save its token now"); }
+      catch(error) { showError("inboundWebhookSourceFormError",error); showToast(error.message,"error"); }
+    }
+    async function rotateInboundWebhookToken(source,button) {
+      if (!window.confirm("Rotate the token for ‘"+source.name+"’? The existing token stops working immediately.")) return; clearError("inboundWebhookSourceNotice"); try { await runBusy(button,"Rotating…",async()=>{ const data=await api("/api/v1/inbound-webhook-sources/"+encodeURIComponent(source.id)+"/rotate-token",{method:"POST",body:JSON.stringify({version:source.version})}); if (!validInboundWebhookSource(data&&data.source)||typeof data.token!=="string"||data.token.length<40) throw new Error("The Worker returned an invalid rotated token."); showInboundWebhookToken(data.source,data.token); await loadInboundWebhookSources(true); }); showToast("Source token rotated — save it now"); } catch(error) { if (error&&error.status===409) await loadInboundWebhookSources(true); showError("inboundWebhookSourceNotice",error); showToast(error.message,"error"); }
+    }
+    async function deleteInboundWebhookSource(source,button) {
+      if (!window.confirm("Delete webhook source ‘"+source.name+"’? Its endpoint and token stop working immediately.")) return; clearError("inboundWebhookSourceNotice"); try { await runBusy(button,"Deleting…",async()=>{ await api("/api/v1/inbound-webhook-sources/"+encodeURIComponent(source.id),{method:"DELETE",body:JSON.stringify({version:source.version})}); await loadInboundWebhookSources(true); }); showToast("Webhook source deleted"); } catch(error) { if (error&&error.status===409) await loadInboundWebhookSources(true); showError("inboundWebhookSourceNotice",error); showToast(error.message,"error"); }
+    }
+    async function copyInboundWebhookToken() { const value=byId("inboundWebhookTokenValue").textContent; try { await navigator.clipboard.writeText(value); showToast("Source token copied"); } catch { showError("inboundWebhookSourceNotice",new Error("Could not copy automatically. Select the token and copy it manually.")); } }
+
     function validWebhook(webhook) {
       return webhook&&typeof webhook.id==="string"&&typeof webhook.name==="string"&&typeof webhook.url==="string"&&typeof webhook.enabled==="boolean"&&Number.isSafeInteger(webhook.version)&&webhook.version>=0&&typeof webhook.createdAt==="string"&&typeof webhook.updatedAt==="string";
     }
@@ -3030,7 +3152,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       try { await runBusy(button,"Deleting…",async()=>{ await api("/api/v1/webhooks/"+encodeURIComponent(webhook.id)+"?version="+encodeURIComponent(String(webhook.version)),{method:"DELETE"}); if (editingWebhookId===webhook.id) resetWebhookForm(); await loadWebhooks(true); }); showToast("Webhook destination deleted"); }
       catch(error) { showError("webhookNotice",error); showToast(error.message,"error"); }
     }
-    async function loadSetupExtensions(force=false) { await Promise.allSettled([loadMailboxes(force),loadClientDirectory(force),loadWebhooks(force)]); }
+    async function loadSetupExtensions(force=false) { await Promise.allSettled([loadMailboxes(force),loadClientDirectory(force),loadWebhooks(force),loadInboundWebhookSources(force)]); populateInboundWebhookOptions(); }
 
     function isAuthenticated() { return !byId("workspace").classList.contains("hidden"); }
     function isEditableTarget(target) { return target instanceof HTMLElement && (target.matches("input,textarea,select")||target.isContentEditable); }
@@ -3133,7 +3255,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       if (byId("commandDialog").open) byId("commandDialog").close(); byId("commandSearch").value=""; commandInvoker=null; visibleCommands=[];
       if (eventSearchTimer!==null) clearTimeout(eventSearchTimer); if (quarantineSearchTimer!==null) clearTimeout(quarantineSearchTimer); eventSearchTimer=null; quarantineSearchTimer=null; eventsRequestVersion+=1; quarantineRequestVersion+=1;
       closeEditor(true,false); token=""; byId("token").value=""; editingId=null; editorDirty=false; editorReturnFocus=null; rulesCache=[]; eventsCache=[]; eventsCursor=null; quarantineCache=[]; quarantineCursor=null; quarantineSummary={pending:0,releaseFailed:0,released:0,dismissed:0}; runtimeConfig=null; setupState=null; goreloTestState=null; selectedQuarantineId=null; reviewAction=null; reviewEvent=null; auditDetailsCache.clear(); goreloCatalogs.clear(); goreloCatalogLoads.clear(); goreloActionPreferences=null; lastRefresh=null;
-      byId("rules").textContent=""; byId("events").textContent=""; byId("quarantineList").textContent=""; renderQuarantineDetail(null); resetSetupView(); resetMailboxes(); resetClientDirectory(); resetWebhooks(); renderCaptureBanner(); updateSummary();
+      byId("rules").textContent=""; byId("events").textContent=""; byId("quarantineList").textContent=""; renderQuarantineDetail(null); resetSetupView(); resetMailboxes(); resetClientDirectory(); resetWebhooks(); resetInboundWebhookSources(); renderCaptureBanner(); updateSummary();
       byId("primaryTabs").dataset.indicatorReady="false"; byId("workspace").classList.add("hidden"); byId("sessionControls").classList.add("hidden"); byId("login").classList.remove("hidden"); byId("loginError").textContent=message||""; showTab("rules",false); byId("token").focus();
     }
     function disconnect() { if (!confirmDiscard()) return; forceDisconnect(""); }
@@ -3192,6 +3314,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     byId("importGoreloClients").onclick=importGoreloClients; byId("clientSearch").oninput=renderClientDirectory; byId("clientAliasForm").onsubmit=(event)=>{ event.preventDefault(); addClientAliases(); }; byId("clientResolutionForm").onsubmit=(event)=>{ event.preventDefault(); previewClientResolution(); };
     byId("clientAliasEditForm").onsubmit=(event)=>{ event.preventDefault(); saveClientAliasEdit(); }; byId("cancelClientAliasEdit").onclick=closeClientAliasEditor; byId("clientAliasDialog").addEventListener("close",()=>{ editingClientAlias=null; clearError("clientAliasDialogError"); });
     byId("addWebhook").onclick=()=>openWebhookForm(null); byId("cancelWebhook").onclick=closeWebhookForm; byId("webhookForm").onsubmit=(event)=>{ event.preventDefault(); saveWebhook(); };
+    byId("addInboundWebhookSource").onclick=(event)=>openInboundWebhookSourceForm(null,event.currentTarget); byId("cancelInboundWebhookSource").onclick=()=>closeInboundWebhookSourceForm(); byId("inboundWebhookSourceForm").onsubmit=(event)=>{ event.preventDefault(); saveInboundWebhookSource(); }; byId("inboundWebhookSourceAction").onchange=updateInboundWebhookActionFields; byId("copyInboundWebhookToken").onclick=copyInboundWebhookToken;
     byId("reviewActionForm").onsubmit=(event)=>{ event.preventDefault(); submitReviewAction(); };
     byId("reviewCancel").onclick=()=>byId("reviewDialog").close();
     byId("reviewDialog").addEventListener("close",()=>{ reviewAction=null; reviewEvent=null; clearError("reviewDialogError"); });
@@ -3203,7 +3326,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     byId("templateTrainerDialog").addEventListener("cancel",(event)=>{ if (trainerHasWork()&&!confirm("Discard this sample and its taught variables?")) event.preventDefault(); }); byId("templateTrainerDialog").addEventListener("click",(event)=>{ if (event.target===byId("templateTrainerDialog")) closeTemplateTrainer(); }); byId("templateTrainerDialog").addEventListener("close",()=>{ const invoker=trainerInvoker; const restore=trainerRestoreFocus; trainerInvoker=null; trainerRestoreFocus=true; resetTemplateTrainer(); if (restore&&invoker&&document.contains(invoker)) requestAnimationFrame(()=>invoker.focus()); });
     window.addEventListener("resize",()=>syncTabIndicator(false));
     window.addEventListener("beforeunload",(event)=>{ if (editorDirty||trainerHasWork()) { event.preventDefault(); event.returnValue=""; } });
-    resetTestResult(); resetSetupView(); resetMailboxes(); resetClientDirectory(); resetWebhooks(); renderCaptureBanner(); showTab("rules",false);
+    resetTestResult(); resetSetupView(); resetMailboxes(); resetClientDirectory(); resetWebhooks(); resetInboundWebhookSources(); renderCaptureBanner(); showTab("rules",false);
   </script>
 </body>
 </html>`;

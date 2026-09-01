@@ -14,6 +14,10 @@ export interface SetupStatus {
   profile: "forward-only" | "structured-gorelo";
   ready: boolean;
   checks: SetupCheck[];
+  emailIngress: {
+    domains: string[];
+    catchAllAddresses: string[];
+  };
   gorelo: {
     configured: boolean;
     region: RuntimeConfig["goreloRegion"];
@@ -52,6 +56,10 @@ async function databaseCheck(db: D1Database): Promise<SetupCheck> {
       .prepare("SELECT default_mailbox_id FROM gorelo_mailbox_settings LIMIT 0")
       .all();
     await db.prepare("SELECT id FROM parser_captures LIMIT 0").all();
+    await db.prepare("SELECT id FROM inbound_webhook_sources LIMIT 0").all();
+    await db
+      .prepare("SELECT source_id FROM inbound_webhook_rate_limits LIMIT 0")
+      .all();
     return {
       key: "database",
       label: "D1 schema",
@@ -299,6 +307,16 @@ export async function buildSetupStatus(
     await databaseCheck(env.DB),
     await forwardingCheck(env.DB, config),
   ];
+  const inboundDomains = [...config.inboundEmailDomains].sort();
+  checks.push({
+    key: "email_ingress",
+    label: "Inbound email domains",
+    status: inboundDomains.length > 0 ? "ready" : "missing",
+    detail:
+      inboundDomains.length > 0
+        ? `${String(inboundDomains.length)} Cloudflare Email Routing domain${inboundDomains.length === 1 ? " is" : "s are"} declared: ${inboundDomains.join(", ")}. Verify each external catch-all after deployment.`
+        : "Set INBOUND_EMAIL_DOMAINS and configure one *@domain Worker trigger for every inbound domain.",
+  });
 
   const archiveRequired =
     config.quarantineMode === "internal" ||
@@ -438,6 +456,10 @@ export async function buildSetupStatus(
     profile: config.goreloApiConfigured ? "structured-gorelo" : "forward-only",
     ready: checks.every((check) => check.status !== "missing"),
     checks,
+    emailIngress: {
+      domains: inboundDomains,
+      catchAllAddresses: inboundDomains.map((domain) => `*@${domain}`),
+    },
     gorelo: {
       configured: config.goreloApiConfigured,
       region: config.goreloRegion,

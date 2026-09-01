@@ -6,6 +6,7 @@ export const conditionFields = [
   "from_domain",
   "to",
   "to_local_part",
+  "to_domain",
   "subject",
   "body_text",
   "attachment_name",

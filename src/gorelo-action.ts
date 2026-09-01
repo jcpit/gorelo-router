@@ -770,24 +770,13 @@ function alertRequest(
   };
 }
 
-/** Builds a bounded, credential-free Gorelo request and its audit snapshot. */
-export async function prepareGoreloAction(
+/** Builds a bounded, credential-free Gorelo request from trusted mappings. */
+export async function prepareGoreloActionFromVariables(
   db: D1Database,
-  facts: EmailFacts,
+  variables: Readonly<Record<string, string>>,
   action: GoreloRuleAction,
   options: { loadCatalog?: GoreloActionCatalogLoader } = {},
 ): Promise<PreparedGoreloAction> {
-  let variables: Record<string, string>;
-  try {
-    variables = extractWebhookVariables(facts, action.fields);
-  } catch {
-    return {
-      actionType: action.type,
-      data: { variables: {} },
-      preflightError: "extraction_failed",
-    };
-  }
-
   let client: ResolvedClientAudit | null;
   try {
     client = await resolveClient(db, action, variables);
@@ -861,4 +850,24 @@ export async function prepareGoreloAction(
       preflightError: "mapping_failed",
     };
   }
+}
+
+/** Builds a bounded, credential-free Gorelo request and its audit snapshot. */
+export async function prepareGoreloAction(
+  db: D1Database,
+  facts: EmailFacts,
+  action: GoreloRuleAction,
+  options: { loadCatalog?: GoreloActionCatalogLoader } = {},
+): Promise<PreparedGoreloAction> {
+  let variables: Record<string, string>;
+  try {
+    variables = extractWebhookVariables(facts, action.fields);
+  } catch {
+    return {
+      actionType: action.type,
+      data: { variables: {} },
+      preflightError: "extraction_failed",
+    };
+  }
+  return prepareGoreloActionFromVariables(db, variables, action, options);
 }

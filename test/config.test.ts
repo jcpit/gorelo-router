@@ -34,6 +34,21 @@ describe("runtime configuration", () => {
     expect(result.archiveMode).toBe("quarantine");
   });
 
+  it("normalizes multiple inbound email domains", () => {
+    const result = loadConfig(
+      env({
+        INBOUND_EMAIL_DOMAINS:
+          " Alerts.Example.com, monitoring.example.net,alerts.example.com ",
+      }),
+    );
+    expect(result.inboundEmailDomains).toEqual(
+      new Set(["alerts.example.com", "monitoring.example.net"]),
+    );
+    expect(() =>
+      loadConfig(env({ INBOUND_EMAIL_DOMAINS: "*@alerts.example.com" })),
+    ).toThrow("INBOUND_EMAIL_DOMAINS");
+  });
+
   it("supports an internal quarantine without a mailbox destination", () => {
     const result = loadConfig(
       env({

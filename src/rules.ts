@@ -27,6 +27,8 @@ function fieldValue(
       return email.envelopeTo;
     case "to_local_part":
       return email.toLocalPart;
+    case "to_domain":
+      return email.envelopeTo.slice(email.envelopeTo.lastIndexOf("@") + 1);
     case "subject":
       return email.subject;
     case "body_text":

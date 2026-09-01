@@ -38,6 +38,26 @@ describe("rule condition matching", () => {
     ).toBe(true);
   });
 
+  it("matches the inbound recipient domain independently of its local part", () => {
+    const recipientDomain = condition({
+      field: "to_domain",
+      operator: "equals",
+      value: "alerts.example.net",
+    });
+    expect(
+      conditionMatches(
+        email({ envelopeTo: "printer@ALERTS.EXAMPLE.NET" }),
+        recipientDomain,
+      ),
+    ).toBe(true);
+    expect(
+      conditionMatches(
+        email({ envelopeTo: "printer@monitoring.example.net" }),
+        recipientDomain,
+      ),
+    ).toBe(false);
+  });
+
   it("uses safe wildcard matching", () => {
     const wildcard = condition({
       field: "subject",

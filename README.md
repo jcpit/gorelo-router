@@ -1,6 +1,6 @@
 # Gorelo Router
 
-A deployable Cloudflare Email Worker that filters and routes inbound mail into Gorelo, signed webhooks, or structured automation. Forwarding remains the default and preserves the original message, attachments, sender, recipients, and threading; opt-in API-only rules trade those mail semantics for structured Gorelo ticket or alert fields.
+A Docker-deployed Cloudflare Worker that routes email from one or more inbound domains and authenticated JSON webhooks into Gorelo, signed webhooks, or structured automation. Email forwarding remains the default and preserves the original message, attachments, sender, recipients, and threading; opt-in API-only routes trade those mail semantics for structured Gorelo ticket or alert fields.
 
 ![How Gorelo Router works](docs/assets/gorelo-router-overview.png)
 
@@ -14,6 +14,7 @@ data.
 It includes:
 
 - ordered D1 rules with `all`/`any` matching over envelope, header, size, body, attachment, and local spam-score facts;
+- any number of Cloudflare Email Routing catch-all domains, with recipient-domain conditions inside the shared rule engine;
 - forward, R2-backed internal hold, review-mailbox quarantine, drop, and SMTP-reject actions;
 - named Gorelo mailboxes with one persistent default, stable rule references,
   domain-or-address destination authorization, and Cloudflare's independent
@@ -32,6 +33,10 @@ It includes:
   alias-resolved clients, and exact dynamic ticket associations for contacts,
   technicians, and agent assets from current Gorelo catalogs;
 - a durable outbound-delivery ledger with immutable attempt history, bounded webhook retries, and manual review for uncertain Gorelo creates;
+- authenticated inbound JSON webhook sources with one-time revocable tokens,
+  JSON Pointer mappings, idempotency, per-source rate limits, raw-payload
+  minimization, and routes to audit, Gorelo ticket/alert templates, or signed
+  outbound webhook destinations;
 - unit and integration-style Worker tests, plus documented local D1 verification.
 
 ## Forwarding by default, structured API actions by choice
@@ -106,7 +111,7 @@ an older concurrent refresh overwrite newer catalog data.
 ## Prerequisites
 
 - Git, Docker Engine, and Docker Compose v2. Node.js and Wrangler run inside the supplied containers; do not install them on the host.
-- A Cloudflare account with the receiving domain on Cloudflare DNS.
+- A Cloudflare account with every receiving domain on Cloudflare DNS.
 - A Gorelo ticketing forwarding address from **Settings → Email → Settings**.
 - A scoped Gorelo API key when enabling client import/catalogs or API-only ticket/alert actions. Give it read scopes for the catalogs you use and the corresponding ticket/alert write scopes.
 - A private R2 archive bucket when using internal quarantine, raw auditing, or API-only ticket/alert actions.
@@ -194,9 +199,11 @@ an ordinary `docker compose up`.
 
    - Confirm the top-level `account_id` is the intended non-placeholder account.
    - Replace `router.example.com` with the dedicated production admin hostname.
-   - Replace `*@example.com` in the top-level `addresses` list with the exact
-     apex or ingestion subdomain that should be caught and sent to this Worker,
-     for example `*@alerts.example.com`.
+   - Replace `*@example.com` in the top-level `addresses` list with one unique
+     catch-all for every apex or ingestion subdomain that should enter this
+     Worker, for example `"addresses": ["*@alerts.example.com", "*@monitoring.example.net"]`.
+     Set `INBOUND_EMAIL_DOMAINS` to the same comma-separated domain set. The
+     production preflight rejects drift between the two declarations.
    - Replace the scaffold Gorelo address in `DEFAULT_GORELO_ADDRESS`. Its exact
      domain is automatically authorized for any number of named mailboxes. Add
      other exact Gorelo forwarding domains to `ALLOWED_FORWARD_DOMAINS`, and
@@ -220,10 +227,10 @@ an ordinary `docker compose up`.
    operators. This protects `/admin`, `/api/v1`, and `/healthz` as soon as the
    Custom Domain appears. Do not protect only `/admin`.
 
-   Onboard the receiving apex domain or dedicated ingestion subdomain in
+   Onboard every receiving apex domain or dedicated ingestion subdomain in
    **Compute → Email Service → Email Routing**, and wait until Cloudflare shows
-   all required routing DNS records as active. The address in the top-level
-   `addresses` list must use that exact hostname. Do not replace an existing
+   all required routing DNS records as active. Each entry in the top-level
+   `addresses` list must use one of those exact hostnames. Do not replace an existing
    mail provider's MX records unless that cutover is intentional.
 
    In **Compute → Email Service → Email Routing → Destination Addresses**, also
@@ -280,7 +287,7 @@ an ordinary `docker compose up`.
    admin token is generated inside the interactive deployment container; later
    deployments preserve the existing Cloudflare secret without displaying or
    rotating it. First-time generation asks for explicit confirmation before
-   creating the value. The declared `*@domain` address becomes an enabled Email
+   creating the value. Each declared `*@domain` address becomes an enabled Email
    Routing catch-all whose action is `worker:gorelo-router`. If an existing
    catch-all is managed outside Wrangler, trigger reconciliation shows the exact
    takeover conflict and asks separately before replacing it. Review that target
@@ -320,7 +327,7 @@ an ordinary `docker compose up`.
    actions remain disabled without the Gorelo key; webhooks remain disabled
    until both the signing secret and exact host allowlist are configured.
 
-9. Confirm the deployment-created rule. Replace `example.com` with the apex
+9. Confirm every deployment-created rule. Replace `example.com` with an apex
    Cloudflare DNS zone; keep using the apex here even when `addresses` contains
    an ingestion subdomain such as `*@alerts.example.com`:
 
@@ -328,14 +335,15 @@ an ordinary `docker compose up`.
    docker compose run --rm cloudflare email routing rules list example.com
    ```
 
-   It must report an enabled catch-all with `worker:gorelo-router`. Do not
+   Repeat for each Cloudflare zone represented by `addresses`. Every result must
+   report an enabled catch-all with `worker:gorelo-router`. Do not
    create per-recipient Cloudflare rules for addresses that Gorelo Router should
    evaluate: an explicit Email Routing rule takes precedence over the catch-all
    and bypasses the application's rules and audit. Remove or deliberately
    repoint any existing exceptions. Cloudflare's
    [routing rule guide](https://developers.cloudflare.com/email-service/configuration/email-routing-addresses/)
    and the
-   [full setup guide](docs/setup-guide.md#10-deploy-and-bind-the-catch-all)
+   [full setup guide](docs/setup-guide.md#10-deploy-and-bind-the-catch-alls)
    cover the domain, takeover, and verification flow.
 
 10. Visit the protected production `/admin`, enter `ADMIN_API_TOKEN`, and
@@ -596,6 +604,11 @@ Every `/api/v1` endpoint requires `Authorization: Bearer <ADMIN_API_TOKEN>`. `/h
 | `POST`   | `/api/v1/webhooks`                                         | Register an allow-listed HTTPS destination                 |
 | `PUT`    | `/api/v1/webhooks/:id`                                     | Version-update/enable/disable a destination                |
 | `DELETE` | `/api/v1/webhooks/:id?version=…`                           | Version-delete a destination                               |
+| `GET`    | `/api/v1/inbound-webhook-sources`                          | List authenticated JSON ingress sources                    |
+| `POST`   | `/api/v1/inbound-webhook-sources`                          | Create a source and return its token once                  |
+| `PUT`    | `/api/v1/inbound-webhook-sources/:id`                      | Version-update source mappings and route                   |
+| `DELETE` | `/api/v1/inbound-webhook-sources/:id`                      | Version-delete a source                                    |
+| `POST`   | `/api/v1/inbound-webhook-sources/:id/rotate-token`         | Revoke and replace a source token                          |
 | `POST`   | `/api/v1/extraction/infer`                                 | Infer and verify literal markers from one selected sample  |
 | `GET`    | `/api/v1/parser-captures`                                  | List recent non-content teaching-capture state             |
 | `POST`   | `/api/v1/parser-captures`                                  | Arm one bounded capture from an existing Audit event       |
@@ -620,6 +633,13 @@ Every `/api/v1` endpoint requires `Authorization: Bearer <ADMIN_API_TOKEN>`. `/h
 | `POST`   | `/api/v1/quarantine/:id/dismiss`                           | Dismiss the expected review version with an optional note  |
 | `GET`    | `/api/v1/readiness`                                        | Validate deployment and enabled-rule integration readiness |
 | `GET`    | `/healthz`                                                 | Router-unauthenticated liveness; protect with Access       |
+
+Inbound senders post JSON to `/hooks/v1/:source-slug` with either
+`Authorization: Bearer <source-token>` or `X-Gorelo-Router-Token`. This route
+does not use the admin token. Send a stable `Idempotency-Key` (or `X-Event-Id`)
+and optional `X-Event-Type`; otherwise the exact request-body digest is the
+idempotency key. Successful first receipt returns HTTP 202, and an exact retry
+returns HTTP 200 with the original audit event ID.
 
 Alias batches accept one customer and one to 100 independently scoped values. The write is atomic:
 
@@ -708,6 +728,12 @@ requested next-message capture. Sensitive header names such as authorization,
 cookies, and API keys are redacted. D1 previews and R2 originals are still
 sensitive client data, and a retained EML may contain active or malicious
 attachments.
+
+For inbound JSON webhooks, D1 stores the source identity, event type,
+idempotency key, payload SHA-256, and only the explicitly mapped bounded scalar
+variables. It never stores the raw JSON body, source token, Authorization
+header, or other request headers. The token is shown once at creation/rotation;
+only its SHA-256 digest and six-character operator hint remain.
 
 A next-message teaching capture is a separate, temporary private R2 object
 under `parser-samples/` containing normalized plain text only. It expires within

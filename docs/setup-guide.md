@@ -2,8 +2,9 @@
 
 This guide takes an operator from a local Docker trial to a production
 Cloudflare Email Worker deployment. It covers the forwarding-first workflow,
-optional quarantine and release, signed webhooks, and structured Gorelo ticket
-or alert creation.
+optional quarantine and release, signed outbound webhooks, authenticated inbound
+JSON webhooks, and structured Gorelo ticket or alert creation. One Worker can
+receive catch-all email for multiple Cloudflare Email Routing domains.
 
 Gorelo Router is not an SMTP server. Cloudflare Email Routing receives the
 message and invokes the Worker. The normal path forwards the original message
@@ -56,7 +57,7 @@ Production deployment requires:
 - The optional command-line Docker fixture also uses curl.
 - A POSIX-compatible shell for the copy/paste command examples. On Windows, use
   WSL or Git Bash, or translate the commands to PowerShell.
-- A Cloudflare account with the receiving domain on Cloudflare DNS.
+- A Cloudflare account with every receiving domain on Cloudflare DNS.
 - A Gorelo ticketing forwarding address, created in Gorelo under
   **Settings → Email → Settings**. Gorelo's
   [custom-domain and forwarding guide](https://help.gorelo.io/custom-domain)
@@ -69,7 +70,8 @@ Production deployment requires:
   `create_ticket`/`create_alert` actions.
 - A Cloudflare Email Sending sender only for automated release from internal
   quarantine.
-- A webhook receiver only when using `forward_webhook`.
+- A webhook receiver only when routing email or an inbound JSON source to a
+  signed outbound webhook.
 
 Both the local trial and production deployment are Docker-only. The local
 container simulates the Cloudflare runtime; a separate one-shot Compose service
@@ -315,17 +317,18 @@ primary deletion paths. Cloudflare lifecycle deletion may lag.
 Edit only non-secret deployment settings in `wrangler.production.jsonc`. Never
 put `ADMIN_API_TOKEN`, `GORELO_API_KEY`, or `WEBHOOK_SIGNING_SECRET` there.
 
-Replace the top-level catch-all scaffold with the exact receiving hostname that
+Replace the top-level catch-all scaffold with every receiving hostname that
 will be onboarded to Cloudflare Email Routing:
 
 ```jsonc
-"addresses": ["*@alerts.example.com"],
+"addresses": ["*@alerts.example.com", "*@monitoring.example.net"],
 ```
 
 Use an unused apex domain only when Cloudflare should own its mail delivery. If
 another provider owns the apex MX records, use a dedicated ingestion subdomain.
-The production preflight requires exactly one non-placeholder `*@domain` entry;
-recipient-specific decisions belong in Gorelo Router rules.
+The production preflight requires one unique non-placeholder `*@domain` entry
+for every inbound domain. Recipient-specific decisions still belong in Gorelo
+Router rules.
 
 At minimum, replace the placeholder forwarding address and choose the intended
 quarantine posture:
@@ -333,6 +336,7 @@ quarantine posture:
 ```jsonc
 "vars": {
   "DEFAULT_GORELO_ADDRESS": "tickets@your-gorelo-route.example",
+  "INBOUND_EMAIL_DOMAINS": "alerts.example.com,monitoring.example.net",
   "ALLOWED_FORWARD_DOMAINS": "secondary-gorelo-route.example",
   "ALLOWED_FORWARD_DESTINATIONS": "review@example.com",
   "QUARANTINE_MODE": "internal",
@@ -343,6 +347,11 @@ quarantine posture:
   "GORELO_API_BASE_URL": "https://api.aue.gorelo.io"
 }
 ```
+
+`INBOUND_EMAIL_DOMAINS` must contain exactly the same domain set as the
+top-level `addresses` list. It drives configuration validation, readiness, the
+Setup summary, and the `to_domain` rule condition; `addresses` remains
+Wrangler's declarative source of truth for Cloudflare catch-all reconciliation.
 
 `DEFAULT_GORELO_ADDRESS` bootstraps the initial named registry mailbox only.
 Once that mailbox registry exists, changing this variable does not resynchronize
@@ -392,6 +401,7 @@ instructions.
 | Setting                        | Purpose and valid posture                                                                                                                                                                                                      |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `DEFAULT_GORELO_ADDRESS`       | Required bootstrap address used to create the first persistent named mailbox and initial default. Its exact domain is implicitly authorized for named mailboxes. It is not silently resynchronized after the registry exists.  |
+| `INBOUND_EMAIL_DOMAINS`        | Required comma-separated exact domains accepted by the Worker. It must match the domains represented by top-level `addresses`; use `to_domain` rules to route domains differently.                                             |
 | `ALLOWED_FORWARD_DOMAINS`      | Optional comma-separated exact domains for additional named Gorelo mailboxes. Each entry permits any mailbox at that domain, but does not include subdomains.                                                                  |
 | `ALLOWED_FORWARD_DESTINATIONS` | Optional comma-separated exact-address overrides for named mailboxes and the required gate for legacy literal forward, quarantine, or release destinations. Cloudflare verification remains separate.                          |
 | `QUARANTINE_MODE`              | `internal` for an R2-backed hold, or `mailbox` for immediate forwarding to a review mailbox.                                                                                                                                   |
@@ -495,10 +505,10 @@ not the other will fail.
 See Cloudflare's
 [destination-address documentation](https://developers.cloudflare.com/email-service/configuration/email-routing-addresses/).
 
-## 9. Onboard the receiving domain
+## 9. Onboard the receiving domains
 
-Activate Email Routing and confirm its DNS state before deploying the declared
-catch-all:
+Activate Email Routing and confirm its DNS state for every inbound domain before
+deploying the declared catch-alls:
 
 1. Open **Compute → Email Service → Email Routing**.
 2. For an unused apex domain, select **Onboard Domain**, review the MX, SPF, and
@@ -507,18 +517,19 @@ catch-all:
 3. For the recommended ingestion subdomain, onboard/select the apex zone, open
    **Settings → Subdomains**, add the exact subdomain such as `alerts`, and let
    Cloudflare add its routing DNS records.
-4. Wait for DNS propagation and confirm Email Routing shows the selected
+4. Repeat the appropriate onboarding path for each domain in `addresses`.
+5. Wait for DNS propagation and confirm Email Routing shows every selected
    hostname and its required records as active. Do not continue while MX or
    verification status is incomplete.
-5. Confirm the top-level `addresses` value in `wrangler.production.jsonc` is
-   the same hostname, expressed as `*@domain`.
-6. Review every explicit rule on that hostname. Explicit matches take
+6. Confirm each hostname has a matching `*@domain` entry in `addresses` and in
+   the comma-separated `INBOUND_EMAIL_DOMAINS` value.
+7. Review every explicit rule on those hostnames. Explicit matches take
    precedence over the catch-all. Remove or repoint any address that should be
    evaluated and audited by Gorelo Router; retain a bypass only deliberately.
    Rules that point to a different Worker are not silently removed by Gorelo
    Router's deployment.
 
-## 10. Deploy and bind the catch-all
+## 10. Deploy and bind the catch-alls
 
 Confirm the exact Cloudflare account again, then run the one-shot production
 deployment container:
@@ -557,8 +568,8 @@ trigger reconciliation fails, keep the active token and rerun the ordinary
 deployment without rotation.
 
 Wrangler also reconciles the top-level `addresses` declaration during this
-deployment. The `*@domain` entry becomes an enabled catch-all with an `all`
-matcher and `worker:gorelo-router` action. If the domain already has a catch-all
+deployment. Each `*@domain` entry becomes an enabled catch-all with an `all`
+matcher and `worker:gorelo-router` action. If a domain already has a catch-all
 managed through the dashboard or API, Wrangler displays a takeover conflict and
 asks whether to apply it. Check the exact domain and old/new actions before
 answering yes. Also review any deletion of an old address previously owned by
@@ -566,17 +577,18 @@ this Worker; `addresses` is declarative source-of-truth configuration. Declining
 leaves the existing routing action in place even though the new Worker version
 is already active; correct the configuration and rerun.
 
-Confirm the result against the apex Cloudflare DNS zone. Wrangler's list command
-resolves a zone by its exact name, so use `example.com` here even when the
-configured inbound address is `*@alerts.example.com`:
+Confirm every result against its apex Cloudflare DNS zone. Wrangler's list
+command resolves a zone by its exact name, so use `example.com` here even when
+the configured inbound address is `*@alerts.example.com`, then repeat for every
+other zone:
 
 ```bash
 docker compose run --rm cloudflare email routing rules list example.com
 ```
 
-The final line must report an enabled catch-all whose action is
+Each result must report an enabled catch-all whose action is
 `worker:gorelo-router`. Then send a non-sensitive message to a previously
-undefined recipient and confirm it appears in Audit.
+undefined recipient on every domain and confirm each appears in Audit.
 
 Do not use `wrangler email routing rules update ... catch-all --action-type
 worker` with Wrangler 4.120.0. That open-beta subcommand incorrectly rejects a
@@ -998,6 +1010,58 @@ response, or abandoned claim becomes `uncertain` because Gorelo might have
 created the record. It is never automatically retried or fallback-forwarded;
 check Gorelo and Audit before manual action.
 
+### 15.5 Inbound JSON webhook routing
+
+Inbound sources let monitoring platforms, forms, and automation systems enter
+the same audited action pipeline without constructing an email. Create the
+outbound destination or the disabled Gorelo ticket/alert template rule first,
+then open **Setup → Inbound webhook sources**:
+
+1. Give the source a unique name and URL-safe endpoint path.
+2. Map only the JSON scalar values the action needs using RFC 6901 JSON
+   Pointers, for example `customer! = /client/name` and
+   `device = /asset/hostname`. The `!` makes a mapping required.
+3. Choose **Audit only**, **Send signed webhook**, or **Create in Gorelo from
+   rule action**. A Gorelo source reuses only the selected rule's action,
+   templates, and catalog selections; its email conditions and enabled state
+   are ignored. Every non-literal extraction key used by that action must have
+   a source mapping.
+4. Set a per-source request-per-minute limit, save, and immediately copy the
+   one-time bearer token. Only its SHA-256 digest and a short display hint are
+   retained. Rotation invalidates the old token immediately.
+
+Send JSON to the displayed endpoint through the Worker's Access-protected
+Custom Domain. Give non-human senders a narrowly scoped Cloudflare Access
+service-token policy when Access protects the hostname. In that case the sender
+must also provide its separate `CF-Access-Client-Id` and
+`CF-Access-Client-Secret` headers; never substitute the Router source token for
+an Access credential:
+
+```bash
+export GORELO_ROUTER_SOURCE_TOKEN='paste-the-one-time-source-token'
+curl --fail-with-body --request POST \
+  https://gorelo-router.example/hooks/v1/monitoring-platform \
+  --header "Authorization: Bearer ${GORELO_ROUTER_SOURCE_TOKEN}" \
+  --header "Content-Type: application/json" \
+  --header "Idempotency-Key: vendor-event-42" \
+  --header "X-Event-Type: monitor.offline" \
+  --data '{"client":{"name":"Example Customer"},"asset":{"hostname":"SERVER-01"},"message":"Disk offline"}'
+unset GORELO_ROUTER_SOURCE_TOKEN
+```
+
+The endpoint accepts only JSON `POST` requests, enforces bounded body and
+structure limits, authenticates before parsing, and returns `202` for a new
+event or `200` for a duplicate. Supply a stable `Idempotency-Key`; otherwise the
+Router falls back to `X-Event-Id` and then the request-body digest. Retries return
+the original audit event without consuming rate-limit capacity.
+
+The raw request body, inbound headers, and bearer token are never stored. Audit
+retains the source identity, event type, payload digest, idempotency key, and
+only the mapped scalar values. Those mapped values can contain customer data,
+so keep mappings narrow and apply the normal D1 retention policy. Deleting or
+disabling a referenced outbound destination, or deleting/changing a referenced
+Gorelo action template incompatibly, is blocked until the source is repointed.
+
 ## 16. End-to-end verification
 
 Complete these checks before changing production MX traffic or enabling a
@@ -1032,6 +1096,9 @@ destructive rule:
    the receiver, including a controlled retryable response.
 10. If using an API-only action, test with a deliberately selected non-production
     client and confirm both Gorelo and the immutable delivery attempt in Audit.
+11. If using inbound JSON, post a synthetic event with a stable idempotency key,
+    repeat it, and confirm the second response references the first Audit event
+    without creating another Gorelo or outbound delivery.
 
 The authenticated readiness endpoint is also available at
 `GET /api/v1/readiness`. Prefer the dashboard for routine use so operators do
@@ -1126,7 +1193,7 @@ Use `--no-update-config` on future resource creation commands.
 | Symptom                                                     | Checks and resolution                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Cloudflare account is not configured                        | Run `docker compose run --rm cloudflare whoami`, copy the intended Account ID into `account_id` in `wrangler.production.jsonc`, then retry.                                                                                                                                                                                                                                                                                                                                     |
-| Deploy preflight says configuration is incomplete           | Replace the all-zero Cloudflare `account_id`, D1 `database_id`, scaffold Gorelo address, `router.example.com` HTTP hostname, and `*@example.com` inbound catch-all in `wrangler.production.jsonc`. Keep `workers_dev` and `preview_urls` false.                                                                                                                                                                                                                                 |
+| Deploy preflight says configuration is incomplete           | Replace the all-zero Cloudflare `account_id`, D1 `database_id`, scaffold Gorelo address, `router.example.com` HTTP hostname, and every placeholder inbound catch-all in `wrangler.production.jsonc`. Make `INBOUND_EMAIL_DOMAINS` match the `addresses` domain set exactly. Keep `workers_dev` and `preview_urls` false.                                                                                                                                                        |
 | Deployment cannot inspect `ADMIN_API_TOKEN`                 | Confirm Wrangler authentication, account selection, Worker name, and Cloudflare availability. Inspection fails closed and never treats an unknown API error as a missing token.                                                                                                                                                                                                                                                                                                 |
 | First deployment requires an interactive terminal           | Do not use `-T`, redirect output, or run first-time generation unattended. Run the Compose deployment interactively, confirm generation, and save the displayed token immediately.                                                                                                                                                                                                                                                                                              |
 | `/admin` rejects the token                                  | Confirm the token belongs to this deployed Worker and was not copied with whitespace. Rotate it if its handling is uncertain.                                                                                                                                                                                                                                                                                                                                                   |
@@ -1135,7 +1202,8 @@ Use `--no-update-config` on future resource creation commands.
 | A named mailbox is unavailable                              | Confirm it is enabled and authorized by the exact default domain, `ALLOWED_FORWARD_DOMAINS`, or an exact `ALLOWED_FORWARD_DESTINATIONS` entry. Domain entries never include subdomains. Also confirm the complete address is verified in Cloudflare. Changing `DEFAULT_GORELO_ADDRESS` does not repair or rewrite an existing registry; use Setup.                                                                                                                              |
 | Mail followed the wrong default                             | Check **Setup → Gorelo mailboxes**. Changing the persistent default affects unmatched mail and legacy default routes without a mailbox ID or literal destination, but not pinned rules.                                                                                                                                                                                                                                                                                         |
 | Capture next did not collect a body                         | Confirm the 15-minute request is still pending and the message exactly satisfies its recipient and optional sender/subject filters. Normal routing continues even when capture does not match. Start a new narrow request after expiry.                                                                                                                                                                                                                                         |
-| Mail never reaches the Worker                               | Confirm `addresses` names the onboarded hostname, MX is active, and `rules list` reports an enabled `worker:gorelo-router` catch-all. Rerun the interactive deployment and approve the verified takeover; Wrangler 4.120's catch-all `rules update` is broken. Explicit recipient rules bypass the Router, so remove or repoint unintended exceptions. Check an unfiltered Worker tail.                                                                                         |
+| Mail never reaches the Worker                               | Confirm `addresses` names every intended hostname, `INBOUND_EMAIL_DOMAINS` matches it, MX is active on the affected domain, and `rules list` reports an enabled `worker:gorelo-router` catch-all. Rerun the interactive deployment and approve the verified takeover; Wrangler 4.120's catch-all `rules update` is broken. Explicit recipient rules bypass the Router, so remove or repoint unintended exceptions. Check an unfiltered Worker tail.                             |
+| Inbound webhook returns `401` or `429`                      | Use the current one-time source token as a bearer token; admin and outbound-signing secrets are different credentials. For `429`, honor `Retry-After` and reduce the source's request rate. Use a stable idempotency key so a retry resolves to the existing audit event.                                                                                                                                                                                                       |
 | A forward destination is rejected                           | A named mailbox must be valid and authorized by its exact domain or address; a legacy literal destination requires an exact `ALLOWED_FORWARD_DESTINATIONS` entry. In either case, verify the complete address as a Cloudflare Email Routing destination.                                                                                                                                                                                                                        |
 | Message processing fails instead of using the default route | This is intentional fail-closed behavior. Inspect Audit and the configured `FAILURE_FORWARD_ADDRESS`/`QUARANTINE_ADDRESS`; failures never silently fall through to normal Gorelo delivery.                                                                                                                                                                                                                                                                                      |
 | Body or attachment rule fails for a large message           | Compare raw size with `MAX_PARSE_BYTES`. Add a higher-priority metadata-only size rule and consider representative Workers Paid limits for production content parsing.                                                                                                                                                                                                                                                                                                          |

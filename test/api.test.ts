@@ -9,6 +9,7 @@ function env(db: D1Database, overrides: Partial<Env> = {}): Env {
     DB: db,
     ADMIN_API_TOKEN: ADMIN_TOKEN,
     DEFAULT_GORELO_ADDRESS: "tickets@gorelo.example",
+    INBOUND_EMAIL_DOMAINS: "alerts.example.net",
     ALLOWED_FORWARD_DESTINATIONS: "tickets@gorelo.example",
     ...overrides,
   };
@@ -164,6 +165,8 @@ describe("HTTP API", () => {
       "gorelo_mailboxes",
       "gorelo_mailbox_settings",
       "parser_captures",
+      "inbound_webhook_sources",
+      "inbound_webhook_rate_limits",
     ]) {
       expect(sql).toContain(table);
     }

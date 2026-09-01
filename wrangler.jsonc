@@ -39,6 +39,7 @@
   ],
   "vars": {
     "DEFAULT_GORELO_ADDRESS": "replace-with-your-gorelo-forwarding-address@example.com",
+    "INBOUND_EMAIL_DOMAINS": "example.com",
     "ALLOWED_FORWARD_DOMAINS": "",
     "ALLOWED_FORWARD_DESTINATIONS": "",
     "QUARANTINE_MODE": "internal",

@@ -57,6 +57,18 @@ import {
   assertGoreloEntityResolutionCatalog,
   prepareGoreloAction,
 } from "./gorelo-action";
+import {
+  createInboundWebhookSource,
+  deleteInboundWebhookSource,
+  handleInboundWebhook,
+  InboundWebhookError,
+  inboundWebhookSourceInputSchema,
+  inboundWebhookSourceUpdateSchema,
+  listInboundWebhookSources,
+  rotateInboundWebhookSourceToken,
+  updateInboundWebhookSource,
+  type InboundWebhookSourceInput,
+} from "./inbound-webhook";
 import { adminThemeResponse } from "./theme";
 import {
   getGoreloCatalog,
@@ -237,6 +249,61 @@ const webhookUpdateSchema = webhookCreateSchema
   .extend({ version: z.number().int().positive() })
   .strict();
 
+const inboundWebhookDeleteSchema = z
+  .object({ version: z.number().int().positive() })
+  .strict();
+
+async function validateInboundWebhookSourceAction(
+  env: Env,
+  config: RuntimeConfig,
+  input: InboundWebhookSourceInput,
+): Promise<void> {
+  if (input.action.type === "accept") return;
+  if (input.action.type === "send_webhook") {
+    if (!webhookCapability(config).configured) {
+      throw new HttpError(
+        400,
+        "Signed outbound webhook delivery is not configured",
+      );
+    }
+    const destination = await getWebhookDestination(
+      env.DB,
+      input.action.destinationId,
+    );
+    if (!destination?.enabled) {
+      throw new HttpError(
+        400,
+        "The selected outbound webhook destination is unavailable",
+      );
+    }
+    return;
+  }
+  if (!config.goreloApiConfigured) {
+    throw new HttpError(400, "The Gorelo API is not configured");
+  }
+  const rule = await getRule(env.DB, input.action.ruleId);
+  if (
+    !rule ||
+    (rule.action.type !== "create_ticket" &&
+      rule.action.type !== "create_alert")
+  ) {
+    throw new HttpError(
+      400,
+      "The selected rule must contain a Gorelo ticket or alert action",
+    );
+  }
+  const mapped = new Set(input.mappings.map((mapping) => mapping.key));
+  const missing = rule.action.fields
+    .filter((field) => field.source !== "literal" && !mapped.has(field.key))
+    .map((field) => field.key);
+  if (missing.length > 0) {
+    throw new HttpError(
+      400,
+      `Add JSON Pointer mappings for the Gorelo action fields: ${missing.join(", ")}`,
+    );
+  }
+}
+
 const safeMailboxNameSchema = z
   .string()
   .trim()
@@ -367,7 +434,12 @@ function json(
   });
 }
 
-function problem(status: number, title: string, details?: unknown): Response {
+function problem(
+  status: number,
+  title: string,
+  details?: unknown,
+  extraHeaders?: HeadersInit,
+): Response {
   return json(
     {
       error: {
@@ -377,6 +449,7 @@ function problem(status: number, title: string, details?: unknown): Response {
       },
     },
     status,
+    extraHeaders,
   );
 }
 
@@ -823,17 +896,93 @@ async function enabledWebhookRuleReferenceCount(
   try {
     const row = await db
       .prepare(
-        `SELECT COUNT(*) AS count
-           FROM rules
-          WHERE enabled = 1
-            AND json_extract(action_json, '$.type') = 'forward_webhook'
-            AND json_extract(action_json, '$.webhookDestinationId') = ?`,
+        `SELECT
+           (SELECT COUNT(*) FROM rules
+             WHERE enabled = 1
+               AND json_extract(action_json, '$.type') = 'forward_webhook'
+               AND json_extract(action_json, '$.webhookDestinationId') = ?)
+           +
+           (SELECT COUNT(*) FROM inbound_webhook_sources
+             WHERE json_extract(action_json, '$.type') = 'send_webhook'
+               AND json_extract(action_json, '$.destinationId') = ?)
+             AS count`,
       )
-      .bind(destinationId)
+      .bind(destinationId, destinationId)
       .first<{ count: number }>();
     return Number(row?.count ?? 0);
   } catch {
     return 0;
+  }
+}
+
+async function inboundWebhookRuleReferenceCount(
+  db: D1Database,
+  ruleId: string,
+): Promise<number> {
+  try {
+    const row = await db
+      .prepare(
+        `SELECT COUNT(*) AS count
+           FROM inbound_webhook_sources
+          WHERE json_extract(action_json, '$.type') = 'gorelo_rule'
+            AND json_extract(action_json, '$.ruleId') = ?`,
+      )
+      .bind(ruleId)
+      .first<{ count: number }>();
+    return Number(row?.count ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+async function validateInboundWebhookRuleTemplateUpdate(
+  db: D1Database,
+  ruleId: string,
+  action: RuleAction,
+): Promise<void> {
+  const references = await db
+    .prepare(
+      `SELECT mappings_json
+         FROM inbound_webhook_sources
+        WHERE json_extract(action_json, '$.type') = 'gorelo_rule'
+          AND json_extract(action_json, '$.ruleId') = ?`,
+    )
+    .bind(ruleId)
+    .all<{ mappings_json: string }>();
+  if (references.results.length === 0) return;
+  if (action.type !== "create_ticket" && action.type !== "create_alert") {
+    throw new HttpError(
+      409,
+      "Repoint inbound webhook sources before changing this Gorelo action template",
+    );
+  }
+  const requiredKeys = action.fields
+    .filter((field) => field.source !== "literal")
+    .map((field) => field.key);
+  for (const reference of references.results) {
+    let mapped = new Set<string>();
+    try {
+      const mappings = JSON.parse(reference.mappings_json) as unknown;
+      if (Array.isArray(mappings)) {
+        mapped = new Set(
+          mappings.flatMap((mapping) =>
+            typeof mapping === "object" &&
+            mapping !== null &&
+            typeof (mapping as { key?: unknown }).key === "string"
+              ? [(mapping as { key: string }).key]
+              : [],
+          ),
+        );
+      }
+    } catch {
+      // A malformed persisted mapping is handled as missing and blocks drift.
+    }
+    if (requiredKeys.some((key) => !mapped.has(key))) {
+      throw new HttpError(
+        409,
+        "Update the referenced inbound webhook source mappings before changing this Gorelo action template",
+      );
+    }
   }
 }
 
@@ -1566,6 +1715,109 @@ async function handleProtectedApi(
     });
   }
 
+  if (url.pathname === "/api/v1/inbound-webhook-sources") {
+    if (request.method === "GET") {
+      return json({ sources: await listInboundWebhookSources(env.DB) });
+    }
+    if (request.method === "POST") {
+      const input = inboundWebhookSourceInputSchema.parse(
+        await readJson(request),
+      );
+      await validateInboundWebhookSourceAction(env, config, input);
+      try {
+        const created = await createInboundWebhookSource(env.DB, input);
+        return json(created, 201);
+      } catch (error) {
+        if (isUniqueConstraintError(error, "inbound_webhook_sources")) {
+          throw new HttpError(
+            409,
+            "A webhook source with that name or path already exists",
+          );
+        }
+        throw error;
+      }
+    }
+    return problem(405, "Method not allowed");
+  }
+
+  const inboundWebhookSourceMatch = url.pathname.match(
+    /^\/api\/v1\/inbound-webhook-sources\/([^/]+)$/,
+  );
+  if (inboundWebhookSourceMatch) {
+    const id = safeResourceId(
+      decodeURIComponent(inboundWebhookSourceMatch[1]!),
+      "webhook source ID",
+    );
+    if (request.method === "PUT") {
+      const input = inboundWebhookSourceUpdateSchema.parse(
+        await readJson(request),
+      );
+      await validateInboundWebhookSourceAction(env, config, input);
+      try {
+        const result = await updateInboundWebhookSource(env.DB, id, input);
+        if (result === null) return problem(404, "Webhook source not found");
+        if (result === "conflict") {
+          return problem(
+            409,
+            "The webhook source changed; refresh before trying again",
+          );
+        }
+        return json({ source: result });
+      } catch (error) {
+        if (isUniqueConstraintError(error, "inbound_webhook_sources")) {
+          throw new HttpError(
+            409,
+            "A webhook source with that name or path already exists",
+          );
+        }
+        throw error;
+      }
+    }
+    if (request.method === "DELETE") {
+      const input = inboundWebhookDeleteSchema.parse(await readJson(request));
+      const result = await deleteInboundWebhookSource(
+        env.DB,
+        id,
+        input.version,
+      );
+      if (result === "not_found")
+        return problem(404, "Webhook source not found");
+      if (result === "conflict") {
+        return problem(
+          409,
+          "The webhook source changed; refresh before trying again",
+        );
+      }
+      return new Response(null, { status: 204 });
+    }
+    return problem(405, "Method not allowed");
+  }
+
+  const inboundWebhookRotateMatch = url.pathname.match(
+    /^\/api\/v1\/inbound-webhook-sources\/([^/]+)\/rotate-token$/,
+  );
+  if (inboundWebhookRotateMatch) {
+    if (request.method !== "POST") return problem(405, "Method not allowed");
+    const id = safeResourceId(
+      decodeURIComponent(inboundWebhookRotateMatch[1]!),
+      "webhook source ID",
+    );
+    const input = inboundWebhookDeleteSchema.parse(await readJson(request));
+    const result = await rotateInboundWebhookSourceToken(
+      env.DB,
+      id,
+      input.version,
+    );
+    if (result === null) return problem(404, "Webhook source not found");
+    if (result === "conflict") {
+      return problem(
+        409,
+        "The webhook source changed; refresh before trying again",
+      );
+    }
+    return json(result);
+  }
+
   const goreloCatalogMatch = url.pathname.match(
     /^\/api\/v1\/integrations\/gorelo\/catalogs\/([^/]+)$/,
   );
@@ -1648,7 +1900,7 @@ async function handleProtectedApi(
       ) {
         throw new HttpError(
           409,
-          "Disable or repoint enabled webhook rules before disabling this destination",
+          "Repoint webhook rules and inbound sources before disabling this destination",
         );
       }
       let result;
@@ -1690,7 +1942,7 @@ async function handleProtectedApi(
       if ((await enabledWebhookRuleReferenceCount(env.DB, id)) > 0) {
         throw new HttpError(
           409,
-          "Disable or repoint enabled webhook rules before deleting this destination",
+          "Repoint webhook rules and inbound sources before deleting this destination",
         );
       }
       const result = await deleteWebhookDestination(env.DB, id, version);
@@ -1772,6 +2024,7 @@ async function handleProtectedApi(
     }
     if (request.method === "PUT") {
       const input = ruleInputSchema.parse(await readJson(request));
+      await validateInboundWebhookRuleTemplateUpdate(env.DB, id, input.action);
       await validatePersistedRuleAction(env, input.action, config);
       let rule;
       try {
@@ -1788,6 +2041,12 @@ async function handleProtectedApi(
       return rule ? json({ rule }) : problem(404, "Rule not found");
     }
     if (request.method === "DELETE") {
+      if ((await inboundWebhookRuleReferenceCount(env.DB, id)) > 0) {
+        throw new HttpError(
+          409,
+          "Repoint inbound webhook sources before deleting this Gorelo action template",
+        );
+      }
       return (await deleteRule(env.DB, id))
         ? new Response(null, { status: 204 })
         : problem(404, "Rule not found");
@@ -2322,6 +2581,20 @@ export async function handleFetch(
       return adminThemeResponse();
     }
 
+    const inboundWebhookMatch = url.pathname.match(
+      /^\/hooks\/v1\/([a-z0-9](?:[a-z0-9-]{1,62}[a-z0-9])?)$/,
+    );
+    if (inboundWebhookMatch) {
+      const config = loadConfig(env);
+      const result = await handleInboundWebhook(
+        request,
+        env,
+        config,
+        inboundWebhookMatch[1]!,
+      );
+      return json({ accepted: true, ...result }, result.duplicate ? 200 : 202);
+    }
+
     if (url.pathname.startsWith("/api/v1/")) {
       return await handleProtectedApi(request, env, url);
     }
@@ -2349,6 +2622,20 @@ export async function handleFetch(
     }
     if (error instanceof RuleActionError) {
       return problem(400, error.message);
+    }
+    if (error instanceof InboundWebhookError) {
+      return problem(
+        error.status,
+        error.message,
+        { code: error.code },
+        error.status === 401
+          ? { "www-authenticate": 'Bearer realm="Gorelo Router webhook"' }
+          : error.status === 429
+            ? { "retry-after": "60" }
+            : error.status === 405
+              ? { allow: "POST" }
+              : undefined,
+      );
     }
     if (error instanceof GoreloMailboxInvariantError) {
       return problem(409, error.message);

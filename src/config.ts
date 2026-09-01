@@ -203,6 +203,15 @@ export function loadConfig(env: Env): RuntimeConfig {
     throw new ConfigurationError("DEFAULT_GORELO_ADDRESS is required");
   }
 
+  const inboundEmailDomains = new Set(csv(env.INBOUND_EMAIL_DOMAINS));
+  for (const domain of inboundEmailDomains) {
+    if (!isValidEmailDomain(domain)) {
+      throw new ConfigurationError(
+        `INBOUND_EMAIL_DOMAINS contains an invalid domain: ${domain}`,
+      );
+    }
+  }
+
   const quarantineAddress = normalizedEmail(
     env.QUARANTINE_ADDRESS,
     "QUARANTINE_ADDRESS",
@@ -277,6 +286,7 @@ export function loadConfig(env: Env): RuntimeConfig {
 
   return {
     defaultGoreloAddress,
+    inboundEmailDomains,
     ...(quarantineAddress ? { quarantineAddress } : {}),
     ...(failureForwardAddress ? { failureForwardAddress } : {}),
     ...(releaseFromAddress ? { releaseFromAddress } : {}),

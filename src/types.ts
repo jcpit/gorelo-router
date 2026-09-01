@@ -13,6 +13,7 @@ export interface Env {
   WEBHOOK_SIGNING_SECRET?: string;
   WEBHOOK_TIMEOUT_MS?: string;
   DEFAULT_GORELO_ADDRESS: string;
+  INBOUND_EMAIL_DOMAINS?: string;
   ALLOWED_FORWARD_DOMAINS?: string;
   ALLOWED_FORWARD_DESTINATIONS?: string;
   QUARANTINE_ADDRESS?: string;
@@ -37,6 +38,7 @@ export type GoreloRegion = "aue" | "usw";
 
 export interface RuntimeConfig {
   defaultGoreloAddress: string;
+  inboundEmailDomains: ReadonlySet<string>;
   quarantineAddress?: string | undefined;
   failureForwardAddress?: string | undefined;
   releaseFromAddress?: string | undefined;
@@ -206,6 +208,15 @@ export interface ProcessingEvent {
   destinationMailboxName?: string;
   status: ProcessingStatus;
   error?: string;
+  ingress?: {
+    type: "email" | "webhook";
+    sourceId?: string;
+    sourceName?: string;
+    eventType?: string;
+    payloadDigest?: string;
+    idempotencyKey?: string;
+    variables?: Readonly<Record<string, string>>;
+  };
   /** Optional for compatibility with metadata rows written before audit capture. */
   audit?: MessageAudit;
   quarantine?: QuarantineReview;
