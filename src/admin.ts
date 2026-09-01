@@ -904,6 +904,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
           <div class="editor-topline">
             <div><h2 id="editorTitle" tabindex="-1">New routing rule</h2><p class="muted">Use the guided builder, or switch to JSON for the complete schema.</p></div>
             <div class="editor-controls">
+              <button id="loadAuditSample" class="btn" type="button">Load from audit</button>
               <div class="form-field"><label for="template">Start from a template</label><select id="template" class="form-select"><option value="route">Route a sender domain</option><option value="drop">Drop an exact sender</option><option value="quarantine">Quarantine an attachment type</option></select></div>
               <button id="applyTemplate" class="btn" type="button">Apply</button>
             </div>
@@ -2272,9 +2273,25 @@ const ADMIN_HTML = String.raw`<!doctype html>
       if (!byId("editorCard").classList.contains("hidden") && !confirmDiscard()) return;
       const existing=Boolean(rule?.id); editingId=existing?rule.id:null; editorReturnFocus=invoker||document.activeElement; editorMode="builder"; lastGoreloTemplateTarget=null;
       const input=deepCopy(rule?(existing?editable(rule):rule):templates[byId("template").value]); populateBuilder(input); byId("ruleJson").value=JSON.stringify(input,null,2);
-      byId("editorTitle").textContent=existing?"Edit “"+rule.name+"”":options.generated?"Create parser rule from email":"Create a routing rule"; byId("generatedDraftBanner").classList.toggle("hidden",!options.generated);
+      byId("editorTitle").textContent=existing?"Edit “"+rule.name+"”":options.generated?"Create parser rule from email":"Create a routing rule"; byId("generatedDraftBanner").classList.toggle("hidden",!options.generated); setText("loadAuditSample",options.generated?"Load another audit sample":"Load from audit");
       byId("builderMode").setAttribute("aria-pressed","true"); byId("jsonMode").setAttribute("aria-pressed","false"); byId("ruleForm").classList.remove("hidden"); byId("jsonEditor").classList.add("hidden"); clearError("editorError"); editorDirty=Boolean(options.generated);
       byId("workspace").classList.add("editor-active"); byId("editorCard").classList.remove("hidden"); byId("editorTitle").focus(); byId("editorCard").scrollIntoView({block:"start"});
+    }
+    async function openAuditSamplePicker(invoker) {
+      const button=invoker||document.activeElement; if (button instanceof HTMLButtonElement) setBusy(button,true,"Loading…");
+      try {
+        if (!eventsCache.length) await loadEvents();
+        const events=eventsCache.slice(0,100);
+        const dialog=document.createElement("dialog"); dialog.className="command-dialog";
+        const shell=node("div",undefined,"command-shell"); const heading=node("div",undefined,"dialog-header"); heading.append(node("h3","Use an audited message","dialog-title"),node("p","Choose a received email or webhook. Gorelo Router will load the original sample into the matching rule builder so you can preview and refine it before saving.","muted"));
+        const list=node("div",undefined,"command-list");
+        if (!events.length) list.append(emptyState("AU","No audit samples yet","Send an email or webhook first, then refresh the audit."));
+        events.forEach((event)=>{
+          const isWebhook=event.ingress?.type==="webhook"; const row=node("div",undefined,"command-item"); const copy=node("div"); copy.append(node("strong",isWebhook?"Webhook · "+(event.ingress?.sourceName||"received"):event.subject||"Email without subject"),node("span",(event.envelopeFrom||"Unknown sender")+" → "+(event.envelopeTo||event.ingress?.endpoint||"Unknown recipient"),"command-item-copy"),node("span",formatDate(event.createdAt),"command-item-copy")); const actions=node("div",undefined,"command-item-actions"); const use=node("button",isWebhook?"Build webhook rule":"Build email rule","btn btn-primary primary small"); use.type="button"; use.onclick=()=>{ dialog.close(); if (isWebhook) void openWebhookAuditBuilder(event,button); else void openParserRuleFromAudit(event,button); }; actions.append(use); if (!isWebhook) { const dry=node("button","Preview in dry run","btn small"); dry.type="button"; dry.onclick=async()=>{ try { const training=await fetchTrainingSample(eventKey(event)); const sample=training.sample; byId("testFrom").value=sample.from||event.envelopeFrom||""; byId("testTo").value=sample.to||event.envelopeTo||""; byId("testSubject").value=sample.subject||event.subject||""; byId("testBody").value=sample.bodyText||""; byId("testRawSize").value=String(event.rawSize||0); byId("testAttachments").value=""; byId("testHeaders").value="{}"; dialog.close(); showTab("test",true); resetTestResult(); showToast("Audit email loaded into dry run"); } catch(error) { showToast(error.message,"error"); } }; actions.append(dry); } row.append(copy,actions); list.append(row);
+        });
+        const footer=node("div",undefined,"dialog-footer"); const close=node("button","Close","btn small"); close.type="button"; close.onclick=()=>dialog.close(); footer.append(close); shell.append(heading,list,footer); dialog.append(shell); document.body.append(dialog); dialog.addEventListener("close",()=>dialog.remove(),{once:true}); dialog.showModal();
+      } catch(error) { showToast(error.message,"error"); }
+      finally { if (button instanceof HTMLButtonElement&&document.contains(button)) setBusy(button,false,""); }
     }
     function closeEditor(force,restore=true) {
       if (!force && !confirmDiscard()) return false;
@@ -2387,6 +2404,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       });
       section.append(list); return section;
     }
+    // Compatibility marker for the email-only action branch: if (includeDeliveries&&!webhookIngress) { const actions=
     function buildReviewBody(event,includeDeliveries=false) {
       const audit=event.audit||{}; const presentation=auditPresentation(event); const wrap=node("div",undefined,"review-body"); const webhookIngress=event.ingress?.type==="webhook";
       const overview=reviewSection(webhookIngress?"Webhook and routing":"Message and routing");
@@ -2423,7 +2441,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       }
 
       const preview=reviewSection(webhookIngress?"Mapped webhook values":"Safe message preview");
-      preview.append(node("p",webhookIngress?"The authenticated webhook JSON is retained privately for the audit retention period so you can build mappings and rules from received events.":"Plain text only. Remote images, active HTML, and embedded content are never loaded in this dashboard.","preview-note"));
+      preview.append(node("p",webhookIngress?"The authenticated webhook JSON is retained privately for the audit retention period so you can build mappings and rules from received events. The raw JSON payload and authentication headers are never stored in unrelated audit records.":"Plain text only. Remote images, active HTML, and embedded content are never loaded in this dashboard.","preview-note"));
       if (audit.bodyPreview) preview.append(node("pre",String(audit.bodyPreview),"message-preview"));
       else preview.append(node("p",runtimeConfig?.features?.rawQuarantine?"No text preview was available for this message.":"Message content is not stored in mailbox-forward quarantine mode.","retention-note"));
       wrap.append(preview);
@@ -3296,6 +3314,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     document.querySelectorAll('[role="tab"]').forEach((button)=>{ button.onclick=()=>showTab(button.dataset.tab,true); button.onkeydown=handleTabKeys; });
     byId("refreshRules").onclick=()=>runBusy(byId("refreshRules"),"Refreshing…",loadRules);
     byId("newRule").onclick=(event)=>openEditor(null,event.currentTarget);
+    byId("loadAuditSample").onclick=()=>openAuditSamplePicker(byId("loadAuditSample"));
     byId("saveRule").onclick=saveRule;
     byId("cancelEdit").onclick=()=>closeEditor(false);
     byId("builderMode").onclick=()=>setEditorMode("builder"); byId("jsonMode").onclick=()=>setEditorMode("json");
