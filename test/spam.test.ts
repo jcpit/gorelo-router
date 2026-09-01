@@ -34,4 +34,27 @@ describe("spam assessment", () => {
     expect(result.score).toBe(0);
     expect(result.isSpam).toBe(false);
   });
+
+  it("scores body, authentication, links, and dangerous attachments", () => {
+    const result = assessSpam(
+      email({
+        subject: "Invoice attached",
+        bodyText: "Claim your prize now: https://bit.ly/win https://1.2.3.4/a unsubscribe",
+        headers: {
+          "authentication-results": "spf=fail dkim=fail dmarc=fail",
+          "reply-to": "different@example.net",
+        },
+        attachments: [{ filename: "invoice.exe", mimeType: "application/octet-stream", size: 10 }],
+      }),
+      config(),
+    );
+    expect(result.isSpam).toBe(true);
+    expect(result.reasons).toEqual(expect.arrayContaining([
+      "body phrase: claim your prize",
+      "email authentication failure",
+      "reply-to domain differs from sender",
+      "link uses a raw IP address",
+      "1 potentially executable attachment",
+    ]));
+  });
 });
