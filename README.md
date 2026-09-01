@@ -635,6 +635,7 @@ Every `/api/v1` endpoint requires `Authorization: Bearer <ADMIN_API_TOKEN>`. `/h
 | `DELETE` | `/api/v1/rules/:id`                                        | Delete one rule                                            |
 | `POST`   | `/api/v1/evaluate`                                         | Dry-run facts without sending or storing                   |
 | `GET`    | `/api/v1/events?limit=50`                                  | Read recent audit summaries                                |
+| `POST`   | `/api/v1/events/:id/recheck`                               | Simulate an email against the current ruleset, without side effects |
 | `GET`    | `/api/v1/events/:id`                                       | Read one hydrated audit record and outbound attempts       |
 | `GET`    | `/api/v1/events/:id/raw`                                   | Download a retained, integrity-checked RFC 5322 message    |
 | `GET`    | `/api/v1/events/:id/training-sample`                       | Read the safest available bounded plain-text sample        |
