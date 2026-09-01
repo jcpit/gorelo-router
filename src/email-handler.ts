@@ -315,7 +315,10 @@ function sameInboundZone(
 ): boolean {
   const at = destination.lastIndexOf("@");
   if (at < 0) return false;
-  const domain = destination.slice(at + 1).trim().toLowerCase();
+  const domain = destination
+    .slice(at + 1)
+    .trim()
+    .toLowerCase();
   return [...inboundDomains].some(
     (inboundDomain) =>
       domain === inboundDomain || domain.endsWith(`.${inboundDomain}`),
