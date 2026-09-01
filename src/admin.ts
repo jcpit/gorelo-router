@@ -1775,11 +1775,12 @@ const ADMIN_HTML = String.raw`<!doctype html>
       const container = byId("rules");
       container.removeAttribute("aria-busy");
       container.textContent = "";
-      if (!rulesCache.length) {
-        container.append(emptyState("RL","No routing rules yet","Mail currently follows the global spam posture and default Gorelo route.","Create your first rule",() => openEditor(null)));
-        updateSummary();
-        return;
-      }
+      const systemRules=[
+        {name:"System · Spam policy",description:"Evaluated when a message reaches the configured spam threshold. User rules cannot bypass this unless explicitly configured.",action:runtimeConfig?.spamAction||"forward",condition:"Spam score meets threshold "+String(runtimeConfig?.spamThreshold??"—"),badge:"System"},
+        {name:"System · Unmatched fallback",description:"Evaluated after all enabled routing rules when no rule matches the message.",action:runtimeConfig?.defaultAction||"forward",condition:"No enabled rule matched",badge:"System"}
+      ];
+      systemRules.forEach((rule,index)=>{ const article=node("article",undefined,"rule-card system-rule action-"+rule.action); article.setAttribute("role","listitem"); const priority=node("div",undefined,"priority"); priority.append(node("strong",index===0?"—":"∞"),node("span","System")); const main=node("div",undefined,"rule-main"); const titleLine=node("div",undefined,"rule-title-line"); titleLine.append(node("h3",rule.name),node("span",actionBadgeLabel({type:rule.action}),"badge "+rule.action),node("span",rule.badge,"badge enabled")); const chips=node("div",undefined,"chip-row"); chips.append(node("span",rule.condition,"chip")); main.append(titleLine,node("p",rule.description,"rule-description"),chips,node("p",actionLabel({type:rule.action}),"rule-description")); const note=node("div",undefined,"rule-actions"); note.append(node("span","Read-only policy","retention-note")); article.append(priority,main,note); container.append(article); });
+      if (!rulesCache.length) { container.append(emptyState("RL","No custom routing rules yet","The system policies above are active. Add a rule to route specific messages before the fallback.","Create your first rule",() => openEditor(null))); updateSummary(); return; }
       rulesCache.forEach((rule) => {
         const article = node("article",undefined,"rule-card action-"+rule.action.type+(rule.enabled ? "" : " disabled"));
         article.setAttribute("role","listitem");

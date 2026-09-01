@@ -1279,6 +1279,7 @@ async function handleProtectedApi(
     return json({
       runtime: {
         spamAction: config.spamAction,
+        defaultAction: config.defaultAction,
         spamThreshold: config.spamThreshold,
         quarantineMode: config.quarantineMode,
         archiveMode: config.archiveMode,
