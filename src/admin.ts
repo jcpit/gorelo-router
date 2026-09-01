@@ -2630,7 +2630,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       } catch(error) { showError("eventsNotice",error); showToast(error.message,"error"); }
       finally { if (document.contains(button)) setBusy(button,false,""); }
     }
-    async function openWebhookAuditBuilder(event,button) {
+    async function openWebhookAuditBuilderLegacy(event,button) {
       setBusy(button,true,"Loading…");
       try {
         const response=await fetch("/api/v1/events/"+encodeURIComponent(eventKey(event))+"/raw",{headers:{authorization:"Bearer "+token}});
