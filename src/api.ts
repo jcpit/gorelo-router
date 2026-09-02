@@ -27,7 +27,7 @@ import {
 } from "./client-directory";
 import { getDelivery, listDeliveries } from "./delivery-repository";
 import { DELIVERY_STATES, type DeliveryState } from "./delivery-types";
-import { inspectArchivedContent } from "./mime";
+import { extractEmailFacts, inspectArchivedContent } from "./mime";
 import {
   createGoreloMailbox,
   deleteGoreloMailbox,
@@ -2348,17 +2348,27 @@ async function handleProtectedApi(
     const storage = await getQuarantineStorage(env.DB, eventId);
     if (!storage?.objectKey) throw new HttpError(409, "This quarantine item has no retained original");
     if (Date.parse(storage.expiresAt) <= Date.now()) throw new HttpError(410, "The quarantine retention period has expired");
-    const audit = sourceEvent.audit;
-    const facts = dryRunFacts(dryRunEmailSchema.parse({
+    const [rules, mailboxDirectory] = await Promise.all([listRules(env.DB), goreloMailboxDirectory(env, config)]);
+    // Match against the retained MIME, not the bounded audit preview. The
+    // preview can truncate body values and omits attachment content, which
+    // would make a reprocess disagree with the original rule engine.
+    const archived = await readArchivedMessage(env.MESSAGE_ARCHIVE, storage.objectKey);
+    if (!archived) throw new HttpError(410, "The retained original is no longer available");
+    let raw: ArrayBuffer;
+    try {
+      raw = await verifiedArchivedArrayBuffer(archived, storage.sha256);
+    } catch (error) {
+      throw new HttpError(410, error instanceof Error ? error.message : "The retained original is invalid");
+    }
+    const facts = await extractEmailFacts({
       from: sourceEvent.envelopeFrom,
       to: sourceEvent.envelopeTo,
-      subject: sourceEvent.subject,
-      bodyText: audit?.bodyPreview ?? "",
-      attachmentNames: (audit?.attachments ?? []).map((item) => item.filename),
-      rawSize: sourceEvent.rawSize,
-      headers: audit?.headers ?? {},
-    }), config.maxBodyCharacters);
-    const [rules, mailboxDirectory] = await Promise.all([listRules(env.DB), goreloMailboxDirectory(env, config)]);
+      headers: new Headers(sourceEvent.audit?.headers ?? {}),
+      rawSize: raw.byteLength,
+      raw: new ReadableStream(),
+      forward: async () => undefined,
+      setReject: () => undefined,
+    } as ForwardableEmailMessage, rules, config, raw, true);
     const decision = decide({ ...facts, spam: assessSpam(facts, config) }, rules, config, mailboxDirectory);
     if (decision.type !== "forward" || !decision.destination) {
       throw new HttpError(422, "The current rules do not produce a forward destination", { decision: decision.type, matchedRuleName: decision.matchedRuleName });
@@ -2367,9 +2377,7 @@ async function handleProtectedApi(
     if (started.status !== "updated") mutationProblem(started.status);
     const releaseVersion = started.review.version;
     try {
-      const archived = await readArchivedMessage(env.MESSAGE_ARCHIVE, storage.objectKey);
-      if (!archived) throw new Error("The retained original is no longer available");
-      const releasedEmail = createReleasedEmailMessage(config.releaseFromAddress, decision.destination, prepareReleasedMessage(await verifiedArchivedArrayBuffer(archived, storage.sha256), { from: config.releaseFromAddress, to: decision.destination, originalEnvelopeFrom: sourceEvent.envelopeFrom, originalEnvelopeTo: sourceEvent.envelopeTo, releaseId: eventId }));
+      const releasedEmail = createReleasedEmailMessage(config.releaseFromAddress, decision.destination, prepareReleasedMessage(raw, { from: config.releaseFromAddress, to: decision.destination, originalEnvelopeFrom: sourceEvent.envelopeFrom, originalEnvelopeTo: sourceEvent.envelopeTo, releaseId: eventId }));
       const sendResult = await env.RELEASE_EMAIL.send(releasedEmail);
       const completed = await completeQuarantineRelease(env.DB, eventId, releaseVersion, sendResult.messageId, actor);
       if (completed.status !== "updated") throw new Error("Audit completion conflict");
