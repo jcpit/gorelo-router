@@ -2364,7 +2364,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     function auditObject(value) { return value!==null&&typeof value==="object"&&!Array.isArray(value); }
     const goreloEntityResolutionMetadata = {
       contact:{label:"Customer contact",matchBy:new Set(["email","alias","name","id"]),id:(value)=>Number.isSafeInteger(value)&&value>0},
-      agentAsset:{label:"Managed device",matchBy:new Set(["id","serial_number","name"]),id:(value)=>typeof value==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)},
+      agentAsset:{label:"Managed device",matchBy:new Set(["id","serial_number","name"]),id:(value)=>typeof value==="string"&&(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)||/^[1-9][0-9]{0,18}$/.test(value))},
       leadAssignee:{label:"Gorelo technician",matchBy:new Set(["email","name","id"]),id:(value)=>Number.isSafeInteger(value)&&value>0}
     };
     const goreloEntityResolutionFailureLabels = {not_found:"No exact match",ambiguous:"Ambiguous exact match",invalid:"Invalid extracted value",catalog_unavailable:"Catalog unavailable"};
@@ -2397,7 +2397,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     }
     function validPositiveAuditId(value) { return Number.isSafeInteger(value)&&value>0; }
     function validPositiveAuditIds(value) { return Array.isArray(value)&&value.length<=100&&value.every(validPositiveAuditId)&&new Set(value).size===value.length; }
-    function validAuditGuids(value) { return Array.isArray(value)&&value.length<=100&&value.every((item)=>typeof item==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item))&&new Set(value.map((item)=>item.toLowerCase())).size===value.length; }
+    function validAuditGuids(value) { return Array.isArray(value)&&value.length<=100&&value.every((item)=>typeof item==="string"&&(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item)||/^[1-9][0-9]{0,18}$/.test(item)))&&new Set(value.map((item)=>item.toLowerCase())).size===value.length; }
     function validAuditUuids(value) { return Array.isArray(value)&&value.length<=100&&value.every((item)=>typeof item==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item))&&new Set(value.map((item)=>item.toLowerCase())).size===value.length; }
     function validGoreloRequest(request,actionType) {
       if (request===null) return true; if (!auditObject(request)) return false;
