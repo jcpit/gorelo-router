@@ -2653,7 +2653,21 @@ const ADMIN_HTML = String.raw`<!doctype html>
             const process=node("button","Process with current rules","btn btn-primary primary small"); process.type="button"; process.onclick=async()=>{
               const destination=current.destination ? " It will be sent to "+current.destination+" and marked released." : " The server will validate the selected action and mark it processed if supported.";
               if (!window.confirm("Process this quarantined message using the current rules?"+destination)) return;
-              await runBusy(process,"Processing…",async()=>{ await api("/api/v1/quarantine/"+encodeURIComponent(eventKey(event))+"/reprocess",{method:"POST",body:JSON.stringify({version:event.quarantine.version,note:"Processed with current rules"})}); dialog.close(); showToast("Message processed with current rules"); refreshQuarantine(); });
+              try {
+                await runBusy(process,"Processing…",async()=>{
+                  const response=await api("/api/v1/quarantine/"+encodeURIComponent(eventKey(event))+"/reprocess",{method:"POST",body:JSON.stringify({version:event.quarantine.version,note:"Processed with current rules"})});
+                  if (response?.processed!==true) throw new Error("The Worker did not confirm processing this message.");
+                });
+                dialog.close();
+                showToast("Message processed with current rules");
+                // Refresh both views so the quarantine item immediately shows
+                // Released and the audit entry reflects the new disposition.
+                await Promise.all([loadQuarantine(),loadEvents()]);
+              } catch(error) {
+                // Keep the simulation open after an unsupported action or
+                // delivery failure so the operator can read the error and act.
+                showToast(error.message||"Unable to process this message","error");
+              }
             }; footer.append(process);
           }
           footer.append(close); dialog.append(header,body,footer); document.body.append(dialog); dialog.addEventListener("close",()=>dialog.remove(),{once:true}); dialog.showModal();
