@@ -161,6 +161,10 @@ const ADMIN_HTML = String.raw`<!doctype html>
     .rule-card.action-quarantine::before { background:#f59e0b; }
     .rule-card.action-reject::before { background:#ef4444; }
     .rule-card.action-drop::before { background:#64748b; }
+    .rule-card.system-rule { border-color:#cbd5e1; background:#f3f6fa; }
+    .rule-card.system-rule::before { background:#64748b; }
+    .rule-card.system-rule .badge.system { color:#475569; background:#dbe4ee; }
+    .rule-card.system-rule .retention-note { color:#64748b; }
     .rule-card.disabled { opacity:.68; background:#f8fafc; }
     .rule-card:hover { border-color:#b7c4d4; box-shadow:0 8px 24px rgba(20,33,58,.07); transform:translateY(-1px); }
     .priority { display:grid; justify-items:center; padding-left:4px; color:var(--muted); }
@@ -1824,6 +1828,9 @@ const ADMIN_HTML = String.raw`<!doctype html>
         article.append(priority,main,actions);
         container.append(article);
       });
+      // System policies are the final safety-net decisions, so keep them
+      // visually distinct and at the bottom of the evaluation list.
+      [...container.querySelectorAll(".system-rule")].forEach((article) => container.append(article));
       updateSummary();
     }
     async function loadRules() {
