@@ -300,8 +300,9 @@ const contactSchema = z.object({
   lastName: optionalNameSchema,
   primaryEmail: z.string().max(320).nullable().optional(),
   alias: z.string().max(512).nullable().optional(),
-  clientId: positiveIdSchema.nullable().optional(),
-  clientLocationId: positiveIdSchema.nullable().optional(),
+  // Gorelo uses zero/-1 for unassigned relationships on some contacts.
+  clientId: optionalUnassignedIdSchema,
+  clientLocationId: optionalUnassignedIdSchema,
   status: optionalStatusSchema,
 });
 

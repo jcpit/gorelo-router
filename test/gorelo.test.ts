@@ -810,6 +810,25 @@ describe("Gorelo response safety", () => {
     ).resolves.toMatchObject({ data: [{ clientId: null, locationId: null }] });
   });
 
+  it("normalizes unassigned contact relationships", async () => {
+    await expect(
+      client(async () =>
+        json(
+          page([
+            {
+              id: 30811,
+              firstName: "Carolyn",
+              lastName: "Gellert",
+              primaryEmail: "carolyn.gellert@mhcs.com.au",
+              clientId: 5960,
+              clientLocationId: -1,
+            },
+          ]),
+        ),
+      ).listContacts({ clientId: 5960 }),
+    ).resolves.toMatchObject({ data: [{ clientId: 5960, locationId: null }] });
+  });
+
   it.each([
     { description: "a braced Guid", id: `{${CANONICAL_GUID}}`, clientId: 0 },
     {
