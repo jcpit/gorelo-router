@@ -57,6 +57,42 @@ type ClientResolutionAudit =
       }[];
     };
 
+/** Credential-free inputs used by each Gorelo resolver, retained only for
+ * operator diagnostics. Values are the already-extracted, bounded template
+ * variables; no API credentials or raw message content is included. */
+function resolutionInputs(
+  action: GoreloRuleAction,
+  variables: Readonly<Record<string, string>>,
+): Readonly<Record<string, { field: string; matchBy: string; value: string }>> {
+  const inputs: Record<
+    string,
+    { field: string; matchBy: string; value: string }
+  > = {};
+  const add = (name: string, resolver: { field: string; matchBy: string } | undefined) => {
+    if (!resolver) return;
+    inputs[name] = {
+      field: resolver.field,
+      matchBy: resolver.matchBy,
+      value: (variables[resolver.field] ?? "").slice(0, 998),
+    };
+  };
+  if (action.clientIdentityField) {
+    inputs.client = {
+      field: action.clientIdentityField,
+      matchBy: "client identity",
+      value: (variables[action.clientIdentityField] ?? "").slice(0, 998),
+    };
+  } else if (action.clientId !== undefined) {
+    inputs.client = { field: "(fixed client)", matchBy: "id", value: String(action.clientId) };
+  }
+  if (action.type === "create_ticket") {
+    add("contact", action.contactResolver);
+    add("leadAssignee", action.leadAssigneeResolver);
+    add("agentAsset", action.agentAssetResolver);
+  }
+  return inputs;
+}
+
 type TicketAction = Extract<GoreloRuleAction, { type: "create_ticket" }>;
 type ResolutionEntity = "contact" | "leadAssignee" | "agentAsset";
 type ResolutionFailureStatus =
@@ -789,6 +825,7 @@ export async function prepareGoreloActionFromVariables(
   action: GoreloRuleAction,
   options: { loadCatalog?: GoreloActionCatalogLoader } = {},
 ): Promise<PreparedGoreloAction> {
+  const resolverInputs = resolutionInputs(action, variables);
   const identityField = action.clientIdentityField;
   const identity = identityField ? variables[identityField]?.trim() : undefined;
   let clientResolution: ClientResolutionAudit;
@@ -839,7 +876,7 @@ export async function prepareGoreloActionFromVariables(
   if (!client) {
     return {
       actionType: action.type,
-      data: { variables, clientResolution },
+      data: { variables, clientResolution, resolverInputs },
       preflightError: "client_resolution_failed",
     };
   }
@@ -862,6 +899,7 @@ export async function prepareGoreloActionFromVariables(
         data: {
           variables,
           clientResolution,
+          resolverInputs,
           goreloClient: client,
           ...(Object.keys(entityResolutions).length
             ? { entityResolutions }
@@ -880,6 +918,7 @@ export async function prepareGoreloActionFromVariables(
     const data = {
       variables,
       clientResolution,
+      resolverInputs,
       goreloClient: client,
       ...(Object.keys(entityResolutions).length ? { entityResolutions } : {}),
     };
