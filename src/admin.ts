@@ -216,6 +216,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     .condition-meta { display:flex; align-items:center; gap:16px; min-height:28px; margin-top:8px; flex-wrap:wrap; }
     .inline-check { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:11px; font-weight:650; }
     .inline-check input { width:16px; min-height:16px; }
+    .condition-meta .inline-check input[data-role="header-name"] { width:min(100%,320px); min-width:220px; min-height:36px; padding:7px 9px; color:var(--ink); border:1px solid var(--control); border-radius:9px; background:#fff; font-size:13px; font-weight:500; }
     .mime-hint { padding:3px 7px; border-radius:6px; color:#86520b; background:#fff4d4; font-size:10px; font-weight:750; }
     .remove-condition { width:36px; min-height:36px; align-self:start; margin-top:18px; padding:0; color:#7b8798; border-color:transparent; background:transparent; font-size:19px; }
     .remove-condition:hover:not(:disabled) { color:var(--danger); background:var(--danger-bg); }
@@ -744,6 +745,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       .gorelo-assignment-dynamic { grid-template-columns:1fr; }
       .check-field { padding-top:3px; }
       .condition-row { grid-template-columns:30px minmax(0,1fr); }
+      .condition-meta .inline-check input[data-role="header-name"] { width:100%; min-width:0; }
       .remove-condition { grid-column:2; width:auto; margin:0; justify-self:start; padding-inline:8px; font-size:13px; }
       .extraction-row { grid-template-columns:30px minmax(0,1fr); }
       .remove-extraction { grid-column:2; width:auto; margin:0; justify-self:start; padding-inline:8px; font-size:13px; }
