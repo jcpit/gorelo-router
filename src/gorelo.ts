@@ -253,6 +253,13 @@ const safeIdSchema = z
   .nonnegative()
   .max(Number.MAX_SAFE_INTEGER);
 const positiveIdSchema = safeIdSchema.refine((value) => value > 0);
+// Gorelo uses numeric zero for an unassigned client/location on some agent
+// asset responses. Normalize it at the API boundary so every downstream
+// validator and resolver sees the canonical null representation.
+const optionalUnassignedIdSchema = z
+  .union([safeIdSchema, z.null()])
+  .transform((value) => (value === 0 ? null : value))
+  .optional();
 const optionalNameSchema = z.string().max(512).nullable().optional();
 const optionalStatusSchema = z
   .object({ name: z.string().max(256).nullable().optional() })
@@ -304,8 +311,8 @@ const agentAssetSchema = z.object({
   id: z.union([goreloGuidSchema, safeIdSchema]),
   name: optionalNameSchema,
   displayName: optionalNameSchema,
-  clientId: safeIdSchema.nullable().optional(),
-  clientLocationId: safeIdSchema.nullable().optional(),
+  clientId: optionalUnassignedIdSchema,
+  clientLocationId: optionalUnassignedIdSchema,
   serialNo: z.string().max(512).nullable().optional(),
   status: optionalStatusSchema,
 });
@@ -540,8 +547,8 @@ class SecureGoreloClient implements GoreloClient {
       name: label(item.displayName ?? item.name, "Agent asset", item.id),
       displayName: item.displayName ?? null,
       deviceName: optionalCatalogText(item.name),
-      clientId: item.clientId || null,
-      locationId: item.clientLocationId || null,
+      clientId: item.clientId ?? null,
+      locationId: item.clientLocationId ?? null,
       serialNumber: item.serialNo ?? null,
       status: item.status?.name ?? null,
     }));
