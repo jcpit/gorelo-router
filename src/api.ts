@@ -57,6 +57,10 @@ import {
   assertGoreloEntityResolutionCatalog,
   prepareGoreloAction,
 } from "./gorelo-action";
+import type {
+  GoreloCreateAlertRequest,
+  GoreloCreateTicketRequest,
+} from "./gorelo";
 import {
   createInboundWebhookSource,
   deleteInboundWebhookSource,
@@ -105,6 +109,7 @@ import {
   validateRuleAction,
 } from "./rules";
 import { assessSpam } from "./spam";
+import { executeGoreloDelivery } from "./gorelo-delivery";
 import { buildSetupStatus } from "./setup";
 import type {
   EmailFacts,
@@ -2216,13 +2221,12 @@ async function handleProtectedApi(
               actionType: goreloPreparation.actionType,
               preflightError: goreloPreparation.preflightError,
               clientIdentityField:
-                decision.gorelo.action.clientIdentityField ?? null,
-              clientIdentityValue:
-                decision.gorelo.action.clientIdentityField
-                  ? goreloPreparation.data.variables[
-                      decision.gorelo.action.clientIdentityField
-                    ] ?? ""
-                  : "",
+                decision.gorelo?.action.clientIdentityField ?? null,
+              clientIdentityValue: (() => {
+                const field = decision.gorelo?.action.clientIdentityField;
+                const variables = goreloPreparation.data.variables as Readonly<Record<string, unknown>>;
+                return field ? String(variables[field] ?? "") : "";
+              })(),
               // This data is intentionally credential-free and bounded by the
               // action preparation layer. It includes only extracted values
               // and public Gorelo record metadata needed for review.
@@ -2398,7 +2402,8 @@ async function handleProtectedApi(
       raw: new ReadableStream(),
       forward: async () => undefined,
       setReject: () => undefined,
-    } as ForwardableEmailMessage, rules, config, raw, true);
+      reply: async () => undefined,
+    } as unknown as ForwardableEmailMessage, rules, config, raw, true);
     const decision = decide({ ...facts, spam: assessSpam(facts, config) }, rules, config, mailboxDirectory);
     const gorelo = decision.gorelo;
     if (decision.type !== "forward" || (!decision.destination && !gorelo)) {
@@ -2421,7 +2426,27 @@ async function handleProtectedApi(
     try {
       let messageId: string;
       if (gorelo) {
-        const execution = await executeGoreloDelivery(env, config, { eventId, actionIndex: 0, actionType: preparedGorelo!.actionType, request: preparedGorelo!.request, data: preparedGorelo!.data, ruleSnapshotId: decision.matchedRuleSnapshotId });
+        const prepared = preparedGorelo!;
+        if (!prepared.request) throw new HttpError(422, "The current Gorelo action could not be prepared");
+        const deliveryBase = {
+          eventId,
+          actionIndex: 0,
+          data: prepared.data,
+          ...(decision.matchedRuleSnapshotId
+            ? { ruleSnapshotId: decision.matchedRuleSnapshotId }
+            : {}),
+        };
+        const execution = prepared.actionType === "create_ticket"
+          ? await executeGoreloDelivery(env, config, {
+              ...deliveryBase,
+              actionType: "create_ticket",
+              request: prepared.request as GoreloCreateTicketRequest,
+            })
+          : await executeGoreloDelivery(env, config, {
+              ...deliveryBase,
+              actionType: "create_alert",
+              request: prepared.request as GoreloCreateAlertRequest,
+            });
         if (execution.status !== "succeeded") {
           if (execution.status === "uncertain") await markQuarantineReleaseUncertain(env.DB, eventId, releaseVersion, "dispatch_outcome_unknown", actor);
           else await failQuarantineRelease(env.DB, eventId, releaseVersion, "Gorelo action failed", actor);

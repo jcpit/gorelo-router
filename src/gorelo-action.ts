@@ -250,10 +250,6 @@ function isNullableText(value: unknown, maximum: number): boolean {
   );
 }
 
-function isNullablePositiveId(value: unknown): value is number | null {
-  return value === null || isPositiveId(value);
-}
-
 function isNullableUnassignedId(value: unknown): value is number | null {
   return value === null || value === 0 || value === -1 || isPositiveId(value);
 }
@@ -547,7 +543,9 @@ async function resolveContact(
       matching.length ? "invalid" : "not_found",
       {
         expectedClientId: clientId,
-        ...(matching.length === 1 ? { returnedClientId: matching[0]!.clientId } : {}),
+        ...(matching.length === 1 && matching[0]!.clientId !== null
+          ? { returnedClientId: matching[0]!.clientId }
+          : {}),
         ...(matching.length === 1 ? { matchedPrimaryEmail: matching[0]!.primaryEmail } : {}),
         rejectionReason: matching.length
           ? "client_scope_mismatch: contact matched, but belongs to a different Gorelo client"
@@ -569,7 +567,7 @@ async function resolveContact(
     matchedBy: resolver.matchBy,
     matchedValue: value,
     matchedPrimaryEmail: resolved.primaryEmail,
-    returnedClientId: resolved.clientId,
+    ...(resolved.clientId === null ? {} : { returnedClientId: resolved.clientId }),
     expectedClientId: clientId,
   };
   return resolved;
@@ -705,8 +703,8 @@ async function resolveAgentAsset(
       resolver.matchBy,
       matching.length ? "invalid" : "not_found",
       {
-        ...(matching.length === 1
-          ? { returnedClientId: matching[0]!.clientId ?? undefined }
+        ...(matching.length === 1 && matching[0]!.clientId !== null
+          ? { returnedClientId: matching[0]!.clientId }
           : {}),
         rejectionReason: matching.length
           ? "client_scope_mismatch: asset belongs to a different Gorelo client"
@@ -728,7 +726,7 @@ async function resolveAgentAsset(
     deviceName: resolved.deviceName,
     displayName: resolved.displayName,
     assetStatus: resolved.status,
-    returnedClientId: resolved.clientId ?? undefined,
+    ...(resolved.clientId === null ? {} : { returnedClientId: resolved.clientId }),
     expectedClientId: clientId,
   };
   return resolved;
