@@ -103,11 +103,19 @@ interface ResolvedEntityAudit {
   id: number | string;
   name: string;
   matchedBy: string;
+  matchedValue?: string;
+  matchedPrimaryEmail?: string | null;
+  returnedClientId?: number;
+  expectedClientId?: number;
 }
 
 interface FailedEntityAudit {
   status: ResolutionFailureStatus;
   matchedBy: string;
+  value?: string;
+  returnedClientId?: number;
+  expectedClientId?: number;
+  rejectionReason?: string;
 }
 
 type EntityResolutionAudit = ResolvedEntityAudit | FailedEntityAudit;
@@ -388,8 +396,14 @@ function setFailure(
   entity: ResolutionEntity,
   matchedBy: string,
   status: ResolutionFailureStatus,
+  details: {
+    value?: string;
+    returnedClientId?: number;
+    expectedClientId?: number;
+    rejectionReason?: string;
+  } = {},
 ): never {
-  resolutions[entity] = { status, matchedBy };
+  resolutions[entity] = { status, matchedBy, ...details };
   throw new EntityResolutionError(`${entity} resolution failed`);
 }
 
@@ -450,10 +464,17 @@ async function resolveContact(
       "contact",
       resolver.matchBy,
       error instanceof ResolutionValueError ? error.status : "invalid",
+      {
+        expectedClientId: clientId,
+        rejectionReason: error instanceof ResolutionValueError ? error.status : "resolver value unavailable",
+      },
     );
   }
   if (resolver.matchBy === "id" && !isCanonicalPositiveId(value)) {
-    return setFailure(resolutions, "contact", resolver.matchBy, "invalid");
+    return setFailure(resolutions, "contact", resolver.matchBy, "invalid", {
+      expectedClientId: clientId,
+      rejectionReason: "contact id is not a valid positive integer",
+    });
   }
   let items: readonly GoreloContactCatalogItem[];
   try {
@@ -469,6 +490,7 @@ async function resolveContact(
       "contact",
       resolver.matchBy,
       "catalog_unavailable",
+      { expectedClientId: clientId, rejectionReason: "catalog_unavailable: contacts catalog unavailable" },
     );
   }
   const matching = distinctById(
@@ -490,10 +512,21 @@ async function resolveContact(
       "contact",
       resolver.matchBy,
       matching.length ? "invalid" : "not_found",
+      {
+        expectedClientId: clientId,
+        ...(matching.length === 1 ? { returnedClientId: matching[0]!.clientId } : {}),
+        ...(matching.length === 1 ? { matchedPrimaryEmail: matching[0]!.primaryEmail } : {}),
+        rejectionReason: matching.length
+          ? "client_scope_mismatch: contact matched, but belongs to a different Gorelo client"
+          : "no contact matched the extracted value",
+      },
     );
   }
   if (scoped.length > 1) {
-    return setFailure(resolutions, "contact", resolver.matchBy, "ambiguous");
+    return setFailure(resolutions, "contact", resolver.matchBy, "ambiguous", {
+      expectedClientId: clientId,
+      rejectionReason: "more than one contact matched the extracted value for the client",
+    });
   }
   const resolved = scoped[0]!;
   resolutions.contact = {
@@ -501,6 +534,10 @@ async function resolveContact(
     id: resolved.id,
     name: resolved.name,
     matchedBy: resolver.matchBy,
+    matchedValue: value,
+    matchedPrimaryEmail: resolved.primaryEmail,
+    returnedClientId: resolved.clientId,
+    expectedClientId: clientId,
   };
   return resolved;
 }
