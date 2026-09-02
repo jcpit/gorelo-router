@@ -449,6 +449,32 @@ function resolverMatches(
   );
 }
 
+function safeCatalogFailure(error: unknown): {
+  status: ResolutionFailureStatus;
+  rejectionReason: string;
+} {
+  const candidate = error as {
+    code?: unknown;
+    diagnostic?: { reason?: unknown; detail?: unknown };
+  };
+  const reason = typeof candidate?.diagnostic?.reason === "string"
+    ? candidate.diagnostic.reason
+    : undefined;
+  const detail = typeof candidate?.diagnostic?.detail === "string"
+    ? candidate.diagnostic.detail.slice(0, 160)
+    : undefined;
+  if (reason === "invalid_catalog_item") {
+    return {
+      status: "catalog_unavailable",
+      rejectionReason: `invalid_catalog_item${detail ? ` (${detail})` : ""}`,
+    };
+  }
+  return {
+    status: "catalog_unavailable",
+    rejectionReason: "catalog_unavailable",
+  };
+}
+
 async function resolveContact(
   action: TicketAction,
   variables: Readonly<Record<string, string>>,
@@ -646,12 +672,14 @@ async function resolveAgentAsset(
       "agent-assets",
       isAgentAssetCatalogItem,
     );
-  } catch {
+  } catch (error) {
+    const failure = safeCatalogFailure(error);
     return setFailure(
       resolutions,
       "agentAsset",
       resolver.matchBy,
-      "catalog_unavailable",
+      failure.status,
+      { rejectionReason: failure.rejectionReason },
     );
   }
   const matching = distinctById(

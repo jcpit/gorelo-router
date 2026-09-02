@@ -75,6 +75,7 @@ export interface GoreloIntegrationDiagnostic {
   stage: GoreloCatalogKind | "connection";
   phase?: GoreloRequestFailurePhase;
   reason?: GoreloFailureReason;
+  detail?: string;
 }
 
 export class GoreloIntegrationError extends Error {
@@ -139,6 +140,9 @@ function mapGoreloError(
               phase: error.diagnostic.phase,
               ...(error.diagnostic.reason
                 ? { reason: error.diagnostic.reason }
+                : {}),
+              ...(error.diagnostic.detail
+                ? { detail: error.diagnostic.detail }
                 : {}),
             }
           : error instanceof GoreloClientError

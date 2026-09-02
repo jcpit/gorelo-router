@@ -217,6 +217,8 @@ export type GoreloFailureReason =
 export interface GoreloClientDiagnostic {
   phase: GoreloRequestFailurePhase;
   reason?: GoreloFailureReason;
+  /** Redacted schema location/code only; never includes the invalid value. */
+  detail?: string;
 }
 
 /** A deliberately redacted error: it never contains the API key or response body. */
@@ -1022,8 +1024,13 @@ function parsePage<TInput, TOutput>(
     const containsInvalidItem = parsed.error.issues.some(
       (issue) => issue.path[0] === "data",
     );
+    const issue = parsed.error.issues[0];
+    const detail = issue
+      ? `${issue.path.map((part) => (typeof part === "number" ? `[${part}]` : String(part))).join(".") || "payload"}: ${issue.code}`
+      : undefined;
     throw invalidEnvelope(
       containsInvalidItem ? "invalid_catalog_item" : "invalid_pagination",
+      detail,
     );
   }
   return {
@@ -1138,12 +1145,15 @@ function normalizeResponseEnvelope(payload: unknown): Record<string, unknown> {
   return normalized;
 }
 
-function invalidEnvelope(reason: GoreloFailureReason): GoreloClientError {
+function invalidEnvelope(
+  reason: GoreloFailureReason,
+  detail?: string,
+): GoreloClientError {
   return new GoreloClientError(
     "invalid_response",
     "Gorelo API returned an unexpected response envelope",
     undefined,
-    { phase: "response", reason },
+    { phase: "response", reason, ...(detail ? { detail } : {}) },
   );
 }
 
