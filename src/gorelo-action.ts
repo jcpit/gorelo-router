@@ -513,13 +513,17 @@ async function resolveContact(
       isContactCatalogItem,
       { clientId },
     );
-  } catch {
+  } catch (error) {
+    const failure = safeCatalogFailure(error);
     return setFailure(
       resolutions,
       "contact",
       resolver.matchBy,
       "catalog_unavailable",
-      { expectedClientId: clientId, rejectionReason: "catalog_unavailable: contacts catalog unavailable" },
+      {
+        expectedClientId: clientId,
+        rejectionReason: `catalog_unavailable: ${failure.rejectionReason}`,
+      },
     );
   }
   const matching = distinctById(
