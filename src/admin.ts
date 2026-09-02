@@ -2667,6 +2667,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
               } catch(error) {
                 // Keep the simulation open after an unsupported action or
                 // delivery failure so the operator can read the error and act.
+                body.append(node("p",error.message||"Unable to process this message","error"));
                 showToast(error.message||"Unable to process this message","error");
               }
             }; footer.append(process);
