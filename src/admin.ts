@@ -2649,13 +2649,14 @@ const ADMIN_HTML = String.raw`<!doctype html>
           // The server is authoritative about which action types can be
           // reprocessed; hiding it here made API-only Gorelo rules appear to
           // have no available workflow at all.
-          if (event.quarantine && (event.quarantine.state === "pending" || event.quarantine.state === "release_failed")) {
+          if ((event.quarantine && (event.quarantine.state === "pending" || event.quarantine.state === "release_failed")) || historical.decision === "quarantine") {
             const process=node("button","Process with current rules","btn btn-primary primary small"); process.type="button"; process.onclick=async()=>{
               const destination=current.destination ? " It will be sent to "+current.destination+" and marked released." : " The server will validate the selected action and mark it processed if supported.";
               if (!window.confirm("Process this quarantined message using the current rules?"+destination)) return;
               try {
                 await runBusy(process,"Processing…",async()=>{
-                  const response=await api("/api/v1/quarantine/"+encodeURIComponent(eventKey(event))+"/reprocess",{method:"POST",body:JSON.stringify({version:event.quarantine.version,note:"Processed with current rules"})});
+                  const detail=event.quarantine?.version ? event : (await api("/api/v1/quarantine/"+encodeURIComponent(eventKey(event)))).event;
+                  const response=await api("/api/v1/quarantine/"+encodeURIComponent(eventKey(event))+"/reprocess",{method:"POST",body:JSON.stringify({version:detail.quarantine.version,note:"Processed with current rules"})});
                   if (response?.processed!==true) throw new Error("The Worker did not confirm processing this message.");
                 });
                 dialog.close();
