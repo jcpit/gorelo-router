@@ -257,8 +257,12 @@ const optionalStatusSchema = z
   .nullable()
   .optional();
 // Gorelo exposes .NET Guid values. Their canonical text form is 8-4-4-4-12,
-// but it does not necessarily carry RFC UUID version and variant bits.
-const goreloGuidSchema = z.string().guid();
+// but it does not necessarily carry RFC UUID version and variant bits (for
+// example, 08dcd2f6-981a-3577-6045-bdc4ac190000). Keep the strict bounded
+// shape without imposing RFC 4122 version/variant semantics.
+const goreloGuidSchema = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
 
 const clientSchema = z.object({
   id: positiveIdSchema,
