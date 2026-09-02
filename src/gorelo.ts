@@ -257,8 +257,8 @@ const positiveIdSchema = safeIdSchema.refine((value) => value > 0);
 // asset responses. Normalize it at the API boundary so every downstream
 // validator and resolver sees the canonical null representation.
 const optionalUnassignedIdSchema = z
-  .union([safeIdSchema, z.null()])
-  .transform((value) => (value === 0 ? null : value))
+  .union([z.literal(-1), safeIdSchema, z.null()])
+  .transform((value) => (value === -1 || value === 0 ? null : value))
   .optional();
 const optionalNameSchema = z.string().max(512).nullable().optional();
 const optionalStatusSchema = z

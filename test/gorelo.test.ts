@@ -793,6 +793,23 @@ describe("Gorelo response safety", () => {
     ).rejects.toMatchObject({ code: "invalid_response" });
   });
 
+  it("normalizes Gorelo's unassigned asset relationship sentinels", async () => {
+    await expect(
+      client(async () =>
+        json(
+          page([
+            {
+              id: CANONICAL_GUID,
+              name: "Unassigned agent",
+              clientId: -1,
+              clientLocationId: 0,
+            },
+          ]),
+        ),
+      ).listAgentAssets(),
+    ).resolves.toMatchObject({ data: [{ clientId: null, locationId: null }] });
+  });
+
   it.each([
     { description: "a braced Guid", id: `{${CANONICAL_GUID}}`, clientId: 0 },
     {
@@ -801,9 +818,9 @@ describe("Gorelo response safety", () => {
       clientId: 0,
     },
     {
-      description: "a negative client relationship",
+      description: "an invalid negative client relationship",
       id: CANONICAL_GUID,
-      clientId: -1,
+      clientId: -2,
     },
   ])(
     "rejects an agent response containing $description",
