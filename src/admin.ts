@@ -2526,6 +2526,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       const top=node("header",undefined,"review-top"); const title=node("div",undefined,"review-title"); const stateClass=allowedQuarantineClasses.has(availability.state)?availability.state:"pending";
       title.append(node("span",quarantineStateLabel(event),"badge "+stateClass),node("h3",event.subject||"(No subject)"),node("p",(event.envelopeFrom||"Unknown sender")+" → "+(event.envelopeTo||"Unknown recipient"),"muted"));
       const actions=node("div",undefined,"review-actions");
+      const recheck=node("button","Recheck current rules","btn small"); recheck.type="button"; recheck.onclick=()=>recheckAuditEvent(event,recheck); actions.append(recheck);
       const release=node("button",availability.canRelease?"Release to Gorelo":availability.state==="released"?"Already released":availability.uncertain?"Manual review required":"Release unavailable here","btn btn-primary primary small"); release.type="button";
       release.disabled=!availability.canRelease; release.setAttribute("aria-label","Release "+(event.subject||"message")+" to Gorelo");
       if (!availability.canRelease) release.title=runtimeConfig?.features?.rawQuarantine?"Automated release is unavailable for this message or deployment.":"Use the configured review mailbox to release this message.";
