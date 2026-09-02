@@ -491,7 +491,13 @@ export async function getGoreloCatalog(
   if (!options.refresh) {
     const cached = await getFreshGoreloCatalogCache(env.DB, key);
     const snapshot = cachedSnapshot(cached?.payload);
-    if (snapshot) return snapshot;
+    // Never reuse a legacy/incomplete snapshot. Older deployments could
+    // persist Gorelo's global totalCount for a scoped catalog, which makes a
+    // valid complete item set look unavailable to the resolver. Refetch it
+    // immediately rather than waiting for the cache TTL to expire.
+    if (snapshot && snapshot.totalCount === snapshot.items.length) {
+      return snapshot;
+    }
   }
   const snapshot = await fetchCatalog(
     integrationClient(env, config),
