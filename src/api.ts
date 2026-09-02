@@ -2340,8 +2340,8 @@ async function handleProtectedApi(
     const eventId = decodeURIComponent(quarantineReprocessMatch[1]!);
     const input = releaseRequestSchema.parse(await readJson(request));
     const actor = reviewActor(request);
-    if (!env.MESSAGE_ARCHIVE || !env.RELEASE_EMAIL || !config.releaseFromAddress) {
-      throw new HttpError(503, "Reprocessing requires retained message storage and email delivery");
+    if (!env.MESSAGE_ARCHIVE) {
+      throw new HttpError(503, "Reprocessing requires retained message storage");
     }
     const sourceEvent = await getEvent(env.DB, eventId);
     if (!sourceEvent?.quarantine) throw new HttpError(404, "Quarantined message not found");
@@ -2370,21 +2370,38 @@ async function handleProtectedApi(
       setReject: () => undefined,
     } as ForwardableEmailMessage, rules, config, raw, true);
     const decision = decide({ ...facts, spam: assessSpam(facts, config) }, rules, config, mailboxDirectory);
-    if (decision.type !== "forward" || !decision.destination) {
-      const actionType = decision.gorelo?.action.type ?? (decision.webhook ? "forward_webhook" : decision.type);
-      throw new HttpError(422, "Reprocessing currently supports email-forward actions only", {
-        decision: decision.type,
-        actionType,
-        matchedRuleName: decision.matchedRuleName,
-      });
+    const gorelo = decision.gorelo;
+    if (decision.type !== "forward" || (!decision.destination && !gorelo)) {
+      const actionType = gorelo?.action.type ?? (decision.webhook ? "forward_webhook" : decision.type);
+      throw new HttpError(422, "The current rules do not produce a processable action", { decision: decision.type, actionType, matchedRuleName: decision.matchedRuleName });
     }
-    const started = await beginQuarantineRelease(env.DB, eventId, input.version, decision.destination, input.note ?? "Processed with current rules", actor);
+    let preparedGorelo: Awaited<ReturnType<typeof prepareGoreloAction>> | undefined;
+    if (gorelo) {
+      preparedGorelo = await prepareGoreloAction(env.DB, facts, gorelo.action, { loadCatalog: (kind, options) => getGoreloCatalog(env, config, kind, options) });
+      if (preparedGorelo.preflightError || !preparedGorelo.request) throw new HttpError(422, "The current Gorelo action could not be prepared", { preflightError: preparedGorelo.preflightError });
+    } else if (!env.RELEASE_EMAIL || !config.releaseFromAddress) {
+      throw new HttpError(503, "The current forward action is not configured for reprocessing");
+    }
+    const processDestination = gorelo ? "gorelo-api" : decision.destination!;
+    const started = await beginQuarantineRelease(env.DB, eventId, input.version, processDestination, input.note ?? "Processed with current rules", actor);
     if (started.status !== "updated") mutationProblem(started.status);
     const releaseVersion = started.review.version;
     try {
-      const releasedEmail = createReleasedEmailMessage(config.releaseFromAddress, decision.destination, prepareReleasedMessage(raw, { from: config.releaseFromAddress, to: decision.destination, originalEnvelopeFrom: sourceEvent.envelopeFrom, originalEnvelopeTo: sourceEvent.envelopeTo, releaseId: eventId }));
-      const sendResult = await env.RELEASE_EMAIL.send(releasedEmail);
-      const completed = await completeQuarantineRelease(env.DB, eventId, releaseVersion, sendResult.messageId, actor);
+      let messageId: string;
+      if (gorelo) {
+        const execution = await executeGoreloDelivery(env, config, { eventId, actionIndex: 0, actionType: preparedGorelo!.actionType, request: preparedGorelo!.request, data: preparedGorelo!.data, ruleSnapshotId: decision.matchedRuleSnapshotId });
+        if (execution.status !== "succeeded") {
+          if (execution.status === "uncertain") await markQuarantineReleaseUncertain(env.DB, eventId, releaseVersion, "dispatch_outcome_unknown", actor);
+          else await failQuarantineRelease(env.DB, eventId, releaseVersion, "Gorelo action failed", actor);
+          throw new HttpError(502, execution.status === "uncertain" ? "Gorelo action outcome is uncertain; manual review is required" : "Gorelo action failed");
+        }
+        messageId = execution.delivery.providerId ?? ("delivery:" + execution.delivery.id);
+      } else {
+        const releasedEmail = createReleasedEmailMessage(config.releaseFromAddress!, decision.destination!, prepareReleasedMessage(raw, { from: config.releaseFromAddress!, to: decision.destination!, originalEnvelopeFrom: sourceEvent.envelopeFrom, originalEnvelopeTo: sourceEvent.envelopeTo, releaseId: eventId }));
+        const sendResult = await env.RELEASE_EMAIL!.send(releasedEmail);
+        messageId = sendResult.messageId;
+      }
+      const completed = await completeQuarantineRelease(env.DB, eventId, releaseVersion, messageId, actor);
       if (completed.status !== "updated") throw new Error("Audit completion conflict");
       const event = await getEvent(env.DB, eventId);
       return json({ event: event ? await hydratedEvent(env, config, event) : null, decision, processed: true });
