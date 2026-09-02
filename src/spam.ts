@@ -1,7 +1,7 @@
 import type { EmailFacts, RuntimeConfig, SpamAssessment } from "./types";
 
 const DEFAULT_SPAM_PHRASES = ["free money","lottery winner","guaranteed income","crypto giveaway","risk-free investment","you have been selected","claim your prize","act now","limited time offer","verify your account","gift card","wire transfer","casino bonus","work from home"];
-const DANGEROUS_EXTENSIONS = /\.(?:exe|scr|pif|js|jse|vbs|vbe|wsf|wsh|bat|cmd|com|hta|iso|img|lnk|dll|msi|jar)$/i;
+const DANGEROUS_EXTENSIONS = /\.(?:exe|scr|pif|js|jse|mjs|vbs|vbe|wsf|wsh|bat|cmd|com|cpl|hta|scf|lnk|url|dll|ocx|sys|msi|msp|msix|appx|jar|apk|iso|img|vhd|vhdx|ps1|psm1|psd1|reg|inf|docm|dotm|xlsm|xltm|xlam|pptm|ppsm|ppam)$/i;
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>()]+/gi;
 const SHORTENER_HOSTS = new Set(["bit.ly","tinyurl.com","t.co","goo.gl","ow.ly","is.gd","buff.ly","cutt.ly"]);
 function isTrustedDomain(domain: string, trusted: ReadonlySet<string>): boolean { for (const item of trusted) if (domain === item || domain.endsWith(`.${item}`)) return true; return false; }

@@ -131,6 +131,15 @@ function compareString(actual: string, condition: RuleCondition): boolean {
   const normalizedActual = normalize(actual, caseSensitive);
   const normalizedExpected = normalize(expected, caseSensitive);
 
+  if (condition.operator === "in" && Array.isArray(condition.value)) {
+    const candidates = condition.value.map((candidate) =>
+      normalize(candidate, caseSensitive),
+    );
+    return condition.field === "attachment_name"
+      ? candidates.some((candidate) => normalizedActual.endsWith(candidate))
+      : candidates.includes(normalizedActual);
+  }
+
   switch (condition.operator) {
     case "equals":
       return normalizedActual === normalizedExpected;

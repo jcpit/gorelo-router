@@ -25,6 +25,29 @@ function configWithoutQuarantineAddress(
 }
 
 describe("rule condition matching", () => {
+  it("matches dangerous attachment suffix lists", () => {
+    const dangerous = rule({
+      name: "Dangerous attachments",
+      description: "",
+      priority: 10,
+      enabled: true,
+      match: "all",
+      conditions: [
+        condition({ field: "attachment_name", operator: "in", value: [".exe", ".docm", ".ps1"] }),
+      ],
+      action: { type: "quarantine" },
+    });
+    expect(
+      decide(
+        email({
+          attachments: [{ filename: "invoice.DOCM", mimeType: "application/octet-stream", size: 10 }],
+          hasAttachments: true,
+        }),
+        [dangerous],
+        config(),
+      ),
+    ).toMatchObject({ type: "quarantine", matchedRuleName: "Dangerous attachments" });
+  });
   it("matches sender domains without case sensitivity", () => {
     expect(
       conditionMatches(
