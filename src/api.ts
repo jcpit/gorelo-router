@@ -2371,7 +2371,12 @@ async function handleProtectedApi(
     } as ForwardableEmailMessage, rules, config, raw, true);
     const decision = decide({ ...facts, spam: assessSpam(facts, config) }, rules, config, mailboxDirectory);
     if (decision.type !== "forward" || !decision.destination) {
-      throw new HttpError(422, "The current rules do not produce a forward destination", { decision: decision.type, matchedRuleName: decision.matchedRuleName });
+      const actionType = decision.gorelo?.action.type ?? (decision.webhook ? "forward_webhook" : decision.type);
+      throw new HttpError(422, "Reprocessing currently supports email-forward actions only", {
+        decision: decision.type,
+        actionType,
+        matchedRuleName: decision.matchedRuleName,
+      });
     }
     const started = await beginQuarantineRelease(env.DB, eventId, input.version, decision.destination, input.note ?? "Processed with current rules", actor);
     if (started.status !== "updated") mutationProblem(started.status);
