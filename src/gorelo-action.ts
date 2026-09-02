@@ -254,6 +254,10 @@ function isNullablePositiveId(value: unknown): value is number | null {
   return value === null || isPositiveId(value);
 }
 
+function isNullableUnassignedId(value: unknown): value is number | null {
+  return value === null || value === 0 || value === -1 || isPositiveId(value);
+}
+
 function isContactCatalogItem(
   value: unknown,
 ): value is GoreloContactCatalogItem {
@@ -266,8 +270,8 @@ function isContactCatalogItem(
     isNullableText(value.lastName, 512) &&
     isNullableText(value.primaryEmail, 320) &&
     isNullableText(value.alias, 512) &&
-    isNullablePositiveId(value.clientId) &&
-    isNullablePositiveId(value.locationId) &&
+    isNullableUnassignedId(value.clientId) &&
+    isNullableUnassignedId(value.locationId) &&
     isNullableText(value.status, 256)
   );
 }
@@ -284,8 +288,8 @@ function isAgentAssetCatalogItem(
     value.name.length <= 512 &&
     isNullableText(value.displayName, 512) &&
     isNullableText(value.deviceName, 512) &&
-    isNullablePositiveId(value.clientId) &&
-    isNullablePositiveId(value.locationId) &&
+    isNullableUnassignedId(value.clientId) &&
+    isNullableUnassignedId(value.locationId) &&
     isNullableText(value.serialNumber, 512) &&
     isNullableText(value.status, 256)
   );
