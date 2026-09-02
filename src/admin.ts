@@ -1837,7 +1837,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
     function selectedOptionValues(select) { return [...select.selectedOptions].map((option)=>option.value).filter(Boolean); }
     function validGoreloCatalogItem(kind,item) {
       if (!item||typeof item!=="object"||typeof item.name!=="string"||item.name.length>512) return false;
-      if (kind==="agent-assets") return typeof item.id==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id);
+      if (kind==="agent-assets") return typeof item.id==="string"&&(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id)||/^[1-9][0-9]{0,18}$/.test(item.id));
       return Number.isSafeInteger(item.id)&&item.id>0;
     }
     function parseGoreloCatalogResponse(data,kind,clientId) {
