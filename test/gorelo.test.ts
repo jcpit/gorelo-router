@@ -829,6 +829,25 @@ describe("Gorelo response safety", () => {
     ).resolves.toMatchObject({ data: [{ clientId: 5960, locationId: null }] });
   });
 
+  it("accepts Gorelo contacts with bounded long aliases", async () => {
+    await expect(
+      client(async () =>
+        json(
+          page([
+            {
+              id: 30811,
+              firstName: "Carolyn",
+              lastName: "Gellert",
+              primaryEmail: "carolyn.gellert@mhcs.com.au",
+              clientId: 5960,
+              alias: "x".repeat(2048),
+            },
+          ]),
+        ),
+      ).listContacts({ clientId: 5960 }),
+    ).resolves.toMatchObject({ data: [{ id: 30811, clientId: 5960 }] });
+  });
+
   it.each([
     { description: "a braced Guid", id: `{${CANONICAL_GUID}}`, clientId: 0 },
     {

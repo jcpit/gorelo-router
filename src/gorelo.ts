@@ -299,7 +299,8 @@ const contactSchema = z.object({
   firstName: optionalNameSchema,
   lastName: optionalNameSchema,
   primaryEmail: z.string().max(320).nullable().optional(),
-  alias: z.string().max(512).nullable().optional(),
+  // Gorelo aliases may contain long directory metadata strings.
+  alias: z.string().max(4096).nullable().optional(),
   // Gorelo uses zero/-1 for unassigned relationships on some contacts.
   clientId: optionalUnassignedIdSchema,
   clientLocationId: optionalUnassignedIdSchema,

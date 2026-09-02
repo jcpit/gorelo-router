@@ -265,7 +265,7 @@ function isContactCatalogItem(
     isNullableText(value.firstName, 512) &&
     isNullableText(value.lastName, 512) &&
     isNullableText(value.primaryEmail, 320) &&
-    isNullableText(value.alias, 512) &&
+    isNullableText(value.alias, 4096) &&
     isNullableUnassignedId(value.clientId) &&
     isNullableUnassignedId(value.locationId) &&
     isNullableText(value.status, 256)
