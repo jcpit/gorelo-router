@@ -289,7 +289,12 @@ async function fetchCompletePagedCatalog<T extends { id: number | string }>(
     if (!page.hasMore) {
       return {
         data: items,
-        totalCount: reportedTotal,
+        // Gorelo can report an unscoped/global totalCount even when a
+        // client-scoped endpoint has returned its complete filtered set.
+        // The cached snapshot must describe the bounded items we actually
+        // collected; the separate limit check above still uses the upstream
+        // count to prevent oversized catalogs.
+        totalCount: items.length,
         nextCursor: null,
         previousCursor: null,
         hasMore: false,
