@@ -2165,6 +2165,16 @@ async function handleProtectedApi(
     const facts = dryRunFacts(input, config.maxBodyCharacters);
     const spam = assessSpam(facts, config);
     const decision = decide({ ...facts, spam }, rules, config, mailboxDirectory);
+    // Prepare API-only Gorelo actions during recheck as a non-mutating
+    // diagnostic.  This deliberately builds the same bounded request used by
+    // delivery, but never sends it, so operators can see the extracted client
+    // identity and the exact resolution failure before processing.
+    const goreloPreparation = decision.gorelo
+      ? await prepareGoreloAction(env.DB, facts, decision.gorelo.action, {
+          loadCatalog: (kind, options) =>
+            getGoreloCatalog(env, config, kind, options),
+        })
+      : undefined;
     return json({
       eventId,
       rulesetEvaluatedAt: new Date().toISOString(),
@@ -2200,6 +2210,26 @@ async function handleProtectedApi(
         matchedRuleName: decision.matchedRuleName,
         destination: decision.destination,
       },
+      ...(goreloPreparation
+        ? {
+            goreloPreparation: {
+              actionType: goreloPreparation.actionType,
+              preflightError: goreloPreparation.preflightError,
+              clientIdentityField:
+                decision.gorelo.action.clientIdentityField ?? null,
+              clientIdentityValue:
+                decision.gorelo.action.clientIdentityField
+                  ? goreloPreparation.data.variables[
+                      decision.gorelo.action.clientIdentityField
+                    ] ?? ""
+                  : "",
+              // This data is intentionally credential-free and bounded by the
+              // action preparation layer. It includes only extracted values
+              // and public Gorelo record metadata needed for review.
+              data: goreloPreparation.data,
+            },
+          }
+        : {}),
       limitations: [
         ...(audit?.bodyTruncated ? ["The retained body preview was truncated"] : []),
         "This is a simulation only; no message was forwarded, stored, or sent to Gorelo",

@@ -45,6 +45,18 @@ interface ResolvedClientAudit {
   matchedBy: string;
 }
 
+type ClientResolutionAudit =
+  | { status: "resolved"; id: number; name: string; matchedBy: string }
+  | {
+      status: "not_found" | "ambiguous" | "stale_alias";
+      matchedBy?: string;
+      candidates?: readonly {
+        clientId: number;
+        clientName: string;
+        matchedBy: string;
+      }[];
+    };
+
 type TicketAction = Extract<GoreloRuleAction, { type: "create_ticket" }>;
 type ResolutionEntity = "contact" | "leadAssignee" | "agentAsset";
 type ResolutionFailureStatus =
@@ -777,6 +789,47 @@ export async function prepareGoreloActionFromVariables(
   action: GoreloRuleAction,
   options: { loadCatalog?: GoreloActionCatalogLoader } = {},
 ): Promise<PreparedGoreloAction> {
+  const identityField = action.clientIdentityField;
+  const identity = identityField ? variables[identityField]?.trim() : undefined;
+  let clientResolution: ClientResolutionAudit;
+  if (action.clientId !== undefined) {
+    const fixed = await fixedClient(db, action.clientId);
+    clientResolution = fixed
+      ? { status: "resolved", ...fixed }
+      : { status: "not_found", matchedBy: "fixed_client" };
+  } else if (!identity) {
+    clientResolution = {
+      status: "not_found",
+      ...(identityField ? { matchedBy: identityField } : {}),
+    };
+  } else {
+    const resolution = await resolveClientIdentity(db, identity, {
+      scope: action.clientAliasScope ?? "global",
+    });
+    clientResolution =
+      resolution.status === "resolved"
+        ? {
+            status: "resolved",
+            id: resolution.client.id,
+            name: resolution.client.name,
+            matchedBy: resolution.matchedBy,
+          }
+        : {
+            status: resolution.status,
+            ...(resolution.status === "not_found" && resolution.reason
+              ? { matchedBy: resolution.reason }
+              : {}),
+            ...(resolution.status === "ambiguous"
+              ? {
+                  candidates: resolution.candidates.map((candidate) => ({
+                    clientId: candidate.clientId,
+                    clientName: candidate.clientName,
+                    matchedBy: candidate.matchedBy,
+                  })),
+                }
+              : {}),
+          };
+  }
   let client: ResolvedClientAudit | null;
   try {
     client = await resolveClient(db, action, variables);
@@ -786,7 +839,7 @@ export async function prepareGoreloActionFromVariables(
   if (!client) {
     return {
       actionType: action.type,
-      data: { variables },
+      data: { variables, clientResolution },
       preflightError: "client_resolution_failed",
     };
   }
@@ -808,6 +861,7 @@ export async function prepareGoreloActionFromVariables(
         actionType: action.type,
         data: {
           variables,
+          clientResolution,
           goreloClient: client,
           ...(Object.keys(entityResolutions).length
             ? { entityResolutions }
@@ -825,6 +879,7 @@ export async function prepareGoreloActionFromVariables(
         : alertRequest(action, variables, client.id);
     const data = {
       variables,
+      clientResolution,
       goreloClient: client,
       ...(Object.keys(entityResolutions).length ? { entityResolutions } : {}),
     };
