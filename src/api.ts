@@ -2329,6 +2329,58 @@ async function handleProtectedApi(
     });
   }
 
+  // Reprocess a held email using the current ruleset. This intentionally
+  // supports the safe, primary forwarding action; API actions remain
+  // available through normal inbound processing and are never guessed here.
+  const quarantineReprocessMatch = url.pathname.match(
+    /^\/api\/v1\/quarantine\/([^/]+)\/reprocess$/,
+  );
+  if (quarantineReprocessMatch) {
+    if (request.method !== "POST") return problem(405, "Method not allowed");
+    const eventId = decodeURIComponent(quarantineReprocessMatch[1]!);
+    const input = releaseRequestSchema.parse(await readJson(request));
+    const actor = reviewActor(request);
+    if (!env.MESSAGE_ARCHIVE || !env.RELEASE_EMAIL || !config.releaseFromAddress) {
+      throw new HttpError(503, "Reprocessing requires retained message storage and email delivery");
+    }
+    const sourceEvent = await getEvent(env.DB, eventId);
+    if (!sourceEvent?.quarantine) throw new HttpError(404, "Quarantined message not found");
+    const storage = await getQuarantineStorage(env.DB, eventId);
+    if (!storage?.objectKey) throw new HttpError(409, "This quarantine item has no retained original");
+    if (Date.parse(storage.expiresAt) <= Date.now()) throw new HttpError(410, "The quarantine retention period has expired");
+    const audit = sourceEvent.audit;
+    const facts = dryRunFacts(dryRunEmailSchema.parse({
+      from: sourceEvent.envelopeFrom,
+      to: sourceEvent.envelopeTo,
+      subject: sourceEvent.subject,
+      bodyText: audit?.bodyPreview ?? "",
+      attachmentNames: (audit?.attachments ?? []).map((item) => item.filename),
+      rawSize: sourceEvent.rawSize,
+      headers: audit?.headers ?? {},
+    }), config.maxBodyCharacters);
+    const [rules, mailboxDirectory] = await Promise.all([listRules(env.DB), goreloMailboxDirectory(env, config)]);
+    const decision = decide({ ...facts, spam: assessSpam(facts, config) }, rules, config, mailboxDirectory);
+    if (decision.type !== "forward" || !decision.destination) {
+      throw new HttpError(422, "The current rules do not produce a forward destination", { decision: decision.type, matchedRuleName: decision.matchedRuleName });
+    }
+    const started = await beginQuarantineRelease(env.DB, eventId, input.version, decision.destination, input.note ?? "Processed with current rules", actor);
+    if (started.status !== "updated") mutationProblem(started.status);
+    const releaseVersion = started.review.version;
+    try {
+      const archived = await readArchivedMessage(env.MESSAGE_ARCHIVE, storage.objectKey);
+      if (!archived) throw new Error("The retained original is no longer available");
+      const releasedEmail = createReleasedEmailMessage(config.releaseFromAddress, decision.destination, prepareReleasedMessage(await verifiedArchivedArrayBuffer(archived, storage.sha256), { from: config.releaseFromAddress, to: decision.destination, originalEnvelopeFrom: sourceEvent.envelopeFrom, originalEnvelopeTo: sourceEvent.envelopeTo, releaseId: eventId }));
+      const sendResult = await env.RELEASE_EMAIL.send(releasedEmail);
+      const completed = await completeQuarantineRelease(env.DB, eventId, releaseVersion, sendResult.messageId, actor);
+      if (completed.status !== "updated") throw new Error("Audit completion conflict");
+      const event = await getEvent(env.DB, eventId);
+      return json({ event: event ? await hydratedEvent(env, config, event) : null, decision, processed: true });
+    } catch (error) {
+      try { await failQuarantineRelease(env.DB, eventId, releaseVersion, "Reprocessing failed", actor); } catch { /* retain releasing state if transition is uncertain */ }
+      throw new HttpError(502, error instanceof Error ? error.message : "Reprocessing failed");
+    }
+  }
+
   const quarantineActionMatch = url.pathname.match(
     /^\/api\/v1\/quarantine\/([^/]+)\/(release|dismiss)$/,
   );
