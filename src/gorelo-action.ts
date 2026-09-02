@@ -107,6 +107,9 @@ interface ResolvedEntityAudit {
   matchedPrimaryEmail?: string | null;
   returnedClientId?: number;
   expectedClientId?: number;
+  deviceName?: string | null;
+  displayName?: string | null;
+  assetStatus?: string | null;
 }
 
 interface FailedEntityAudit {
@@ -116,6 +119,7 @@ interface FailedEntityAudit {
   returnedClientId?: number;
   expectedClientId?: number;
   rejectionReason?: string;
+  returnedAssetClientId?: number | null;
 }
 
 type EntityResolutionAudit = ResolvedEntityAudit | FailedEntityAudit;
@@ -274,9 +278,8 @@ function isAgentAssetCatalogItem(
   if (!isRecord(value)) return false;
   return (
     typeof value.id === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      value.id,
-    ) &&
+    (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.id) ||
+      /^[1-9][0-9]{0,18}$/.test(value.id)) &&
     typeof value.name === "string" &&
     value.name.length <= 512 &&
     isNullableText(value.displayName, 512) &&
@@ -632,9 +635,7 @@ async function resolveAgentAsset(
   }
   if (
     resolver.matchBy === "id" &&
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      value,
-    )
+    !(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value) || /^[1-9][0-9]{0,18}$/.test(value))
   ) {
     return setFailure(resolutions, "agentAsset", resolver.matchBy, "invalid");
   }
@@ -671,10 +672,20 @@ async function resolveAgentAsset(
       "agentAsset",
       resolver.matchBy,
       matching.length ? "invalid" : "not_found",
+      {
+        ...(matching.length === 1
+          ? { returnedClientId: matching[0]!.clientId ?? undefined }
+          : {}),
+        rejectionReason: matching.length
+          ? "client_scope_mismatch: asset belongs to a different Gorelo client"
+          : "no agent asset matched the extracted value",
+      },
     );
   }
   if (scoped.length > 1) {
-    return setFailure(resolutions, "agentAsset", resolver.matchBy, "ambiguous");
+    return setFailure(resolutions, "agentAsset", resolver.matchBy, "ambiguous", {
+      rejectionReason: "more than one agent asset matched the extracted value for the client",
+    });
   }
   const resolved = scoped[0]!;
   resolutions.agentAsset = {
@@ -682,6 +693,11 @@ async function resolveAgentAsset(
     id: resolved.id,
     name: resolved.name,
     matchedBy: resolver.matchBy,
+    deviceName: resolved.deviceName,
+    displayName: resolved.displayName,
+    assetStatus: resolved.status,
+    returnedClientId: resolved.clientId ?? undefined,
+    expectedClientId: clientId,
   };
   return resolved;
 }

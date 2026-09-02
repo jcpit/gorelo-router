@@ -293,7 +293,9 @@ const contactSchema = z.object({
 });
 
 const agentAssetSchema = z.object({
-  id: goreloGuidSchema,
+  // Gorelo has returned both UUID and numeric asset identifiers across API
+  // endpoints/regions. Normalize either safe form to a string below.
+  id: z.union([goreloGuidSchema, safeIdSchema]),
   name: optionalNameSchema,
   displayName: optionalNameSchema,
   clientId: safeIdSchema.nullable().optional(),
@@ -528,7 +530,7 @@ class SecureGoreloClient implements GoreloClient {
   ): Promise<GoreloPage<GoreloAgentAssetCatalogItem>> {
     const payload = await this.#get("/v1/assets/agents", pageQuery(request));
     return parsePage(payload, agentAssetSchema, (item) => ({
-      id: item.id,
+      id: String(item.id),
       name: label(item.displayName ?? item.name, "Agent asset", item.id),
       displayName: item.displayName ?? null,
       deviceName: optionalCatalogText(item.name),
