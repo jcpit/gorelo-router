@@ -2386,6 +2386,8 @@ async function handleProtectedApi(
     const started = await beginQuarantineRelease(env.DB, eventId, input.version, processDestination, input.note ?? "Processed with current rules", actor);
     if (started.status !== "updated") mutationProblem(started.status);
     const releaseVersion = started.review.version;
+    let dispatchAccepted = false;
+    let dispatchMessageId: string | undefined;
     try {
       let messageId: string;
       if (gorelo) {
@@ -2401,12 +2403,23 @@ async function handleProtectedApi(
         const sendResult = await env.RELEASE_EMAIL!.send(releasedEmail);
         messageId = sendResult.messageId;
       }
+      // From this point onward the provider may have accepted the action. If
+      // the completion write fails, leave the item non-retryable as uncertain
+      // rather than moving it back to release_failed and risking a duplicate.
+      dispatchAccepted = true;
+      dispatchMessageId = messageId;
       const completed = await completeQuarantineRelease(env.DB, eventId, releaseVersion, messageId, actor);
       if (completed.status !== "updated") throw new Error("Audit completion conflict");
       const event = await getEvent(env.DB, eventId);
       return json({ event: event ? await hydratedEvent(env, config, event) : null, decision, processed: true });
     } catch (error) {
-      try { await failQuarantineRelease(env.DB, eventId, releaseVersion, "Reprocessing failed", actor); } catch { /* retain releasing state if transition is uncertain */ }
+      try {
+        if (dispatchAccepted) {
+          await markQuarantineReleaseUncertain(env.DB, eventId, releaseVersion, "audit_completion_unknown", actor, dispatchMessageId);
+        } else {
+          await failQuarantineRelease(env.DB, eventId, releaseVersion, "Reprocessing failed", actor);
+        }
+      } catch { /* retain releasing state if transition is uncertain */ }
       throw new HttpError(502, error instanceof Error ? error.message : "Reprocessing failed");
     }
   }
