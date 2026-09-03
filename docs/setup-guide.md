@@ -412,8 +412,8 @@ instructions.
 | `SPAM_THRESHOLD`               | Integer from 0 through 8; scaffold value 5.                                                                                                                                                                                    |
 | `SPAM_ACTION`                  | Start with `forward` for observation. Other values are `quarantine`, `drop`, and `reject`.                                                                                                                                     |
 | `DEFAULT_ACTION`               | Action when no enabled rule matches: `forward` (default Gorelo mailbox), `quarantine`, `drop`, or `reject`. Rules are always evaluated first.                                                                                   |
-| `SPAM_KEYWORDS`                | Optional comma-separated subject phrases replacing the built-in defaults.                                                                                                                                                      |
-| `TRUSTED_SENDER_DOMAINS`       | Optional envelope-sender domains that subtract two score points. This is a hint, not authentication.                                                                                                                           |
+| `SPAM_KEYWORDS`                | Legacy compatibility setting; ignored by the Cloudflare-only spam path.                                                                                                                                                          |
+| `TRUSTED_SENDER_DOMAINS`       | Legacy compatibility setting; ignored by the Cloudflare-only spam path.                                                                                                                                                           |
 | `MAX_PARSE_BYTES`              | Largest raw message eligible for body or attachment parsing; scaffold value 10 MiB.                                                                                                                                            |
 | `MAX_BODY_CHARACTERS`          | Searchable body prefix retained in memory; scaffold value 200,000 characters.                                                                                                                                                  |
 | `MAX_HTML_SCAN_CHARACTERS`     | HTML prefix scanned to derive searchable text; scaffold value 500,000 characters.                                                                                                                                              |
@@ -1139,8 +1139,9 @@ not place bearer tokens in shell history or URLs.
   send and must not be blindly retried.
 - Monitor Worker exceptions, D1/R2 failures, quarantine volume, and storage use.
   Observability is enabled in the checked-in Wrangler configuration.
-- Keep `SPAM_ACTION=forward` until representative traffic has been observed;
-  tune subject keywords and threshold conservatively.
+- Keep `SPAM_ACTION=forward` until representative Cloudflare scores have been
+  observed; tune the threshold conservatively. Use explicit header rules when
+  you need a different action for a particular Cloudflare score.
 - Re-import Gorelo clients after catalog changes and preview important aliases
   again before enabling or re-enabling structured rules.
 - Refresh `/api/v1/readiness` after every schema, binding, secret, enabled
