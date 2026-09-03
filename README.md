@@ -717,7 +717,7 @@ See [docs/rules.md](docs/rules.md) for the rule model and examples.
 
 ## Spam and security boundaries
 
-The live Email Worker API does not expose a synchronous Cloudflare `isSpam` fact. This project therefore computes a transparent score from subject phrases, capitalization, punctuation, and the envelope-sender-domain hint. Its maximum positive score is `8`; it does not inspect body text, URLs, authentication results, reputation, or attachment content.
+The router uses Cloudflare's inbound spam score headers (for example, `x-cf-spamh-score`) and does not compute a local heuristic or call an external spam-scanning service. The numeric score remains available to rule conditions; global spam handling applies when it meets `SPAM_THRESHOLD`.
 
 The safe default `SPAM_ACTION=forward` is observation-only. With a non-forward spam action, matching forward, webhook, ticket, and alert rules still go through global spam policy; only a rule with `"bypassSpam": true` bypasses it. Use that explicit override sparingly and only with independently trusted signals.
 

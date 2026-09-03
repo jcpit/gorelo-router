@@ -371,7 +371,7 @@ describe("email mailbox routing", () => {
       "Infrastructure free money lottery winner guaranteed income",
       "Host: attacker-controlled\r\nStatus: offline\r\n",
     );
-    mail.inbound.headers.set("x-cf-spamh-score", "1");
+    mail.inbound.headers.set("x-cf-spamh-score", "5");
 
     await handleEmail(
       mail.inbound,
@@ -387,7 +387,7 @@ describe("email mailbox routing", () => {
       version: 1,
     });
     await expect(getEvent(db, await onlyEventId(db))).resolves.toMatchObject({
-      spamScore: 1,
+      spamScore: 5,
       status: "forwarded",
     });
   });
