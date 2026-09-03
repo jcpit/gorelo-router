@@ -341,8 +341,8 @@ quarantine posture:
   "ALLOWED_FORWARD_DESTINATIONS": "review@example.com",
   "QUARANTINE_MODE": "internal",
   "ARCHIVE_MODE": "quarantine",
-  "SPAM_THRESHOLD": "5",
-  "SPAM_ACTION": "forward",
+  "SPAM_THRESHOLD": "1",
+  "SPAM_ACTION": "quarantine",
   "EVENT_RETENTION_DAYS": "30",
   "GORELO_API_BASE_URL": "https://api.aue.gorelo.io"
 }
@@ -409,8 +409,8 @@ instructions.
 | `QUARANTINE_ADDRESS`           | Review mailbox for mailbox mode. It is required when mailbox mode uses `SPAM_ACTION=quarantine`, unless only explicit rule destinations are used while the global spam action is different.                                    |
 | `FAILURE_FORWARD_ADDRESS`      | Optional review destination for parser, D1, forwarding, or definitive API-action failures. If absent, the quarantine address is used; if neither exists, the Worker rejects failures instead of using the normal Gorelo route. |
 | `RELEASE_FROM_ADDRESS`         | Optional service sender for internal-hold release. It must be configured together with `RELEASE_EMAIL`.                                                                                                                        |
-| `SPAM_THRESHOLD`               | Integer from 0 through 8; scaffold value 5.                                                                                                                                                                                    |
-| `SPAM_ACTION`                  | Start with `forward` for observation. Other values are `quarantine`, `drop`, and `reject`.                                                                                                                                     |
+| `SPAM_THRESHOLD`               | Integer from 0 through 8; default 1 for Cloudflare's `x-cf-spamh-score` header.                                                                                                                                                 |
+| `SPAM_ACTION`                  | Route for Cloudflare spam at the threshold: `quarantine` (default), `forward`, `drop`, or `reject`.                                                                                                                           |
 | `DEFAULT_ACTION`               | Action when no enabled rule matches: `forward` (default Gorelo mailbox), `quarantine`, `drop`, or `reject`. Rules are always evaluated first.                                                                                   |
 | `SPAM_KEYWORDS`                | Legacy compatibility setting; ignored by the Cloudflare-only spam path.                                                                                                                                                          |
 | `TRUSTED_SENDER_DOMAINS`       | Legacy compatibility setting; ignored by the Cloudflare-only spam path.                                                                                                                                                           |
@@ -423,8 +423,8 @@ instructions.
 | `ALLOWED_WEBHOOK_HOSTS`        | Optional comma-separated exact public DNS hostnames. No schemes, wildcards, IP literals, ports, or local names.                                                                                                                |
 | `WEBHOOK_TIMEOUT_MS`           | Webhook timeout from 50 through 30,000 milliseconds; scaffold value 8,000.                                                                                                                                                     |
 
-Keep `SPAM_ACTION=forward` until you have observed representative scores in
-Audit. The score is read from Cloudflare's inbound spam headers (for example,
+The default `SPAM_ACTION=quarantine` protects messages with a Cloudflare score
+of 1 or higher. The score is read from Cloudflare's inbound spam headers (for example,
 `x-cf-spamh-score`); the router does not add a local heuristic and this is not
 antivirus, phishing detection, reputation, URL analysis, or sender authentication.
 
@@ -1139,9 +1139,9 @@ not place bearer tokens in shell history or URLs.
   send and must not be blindly retried.
 - Monitor Worker exceptions, D1/R2 failures, quarantine volume, and storage use.
   Observability is enabled in the checked-in Wrangler configuration.
-- Keep `SPAM_ACTION=forward` until representative Cloudflare scores have been
-  observed; tune the threshold conservatively. Use explicit header rules when
-  you need a different action for a particular Cloudflare score.
+- Keep the default quarantine route unless representative Cloudflare scores
+  justify a different action. Use explicit header rules when you need a
+  different action for a particular score.
 - Re-import Gorelo clients after catalog changes and preview important aliases
   again before enabling or re-enabling structured rules.
 - Refresh `/api/v1/readiness` after every schema, binding, secret, enabled

@@ -223,7 +223,7 @@ an ordinary `docker compose up`.
      resynchronized from this variable.
    - Select the correct `GORELO_API_BASE_URL` region.
    - Leave `workers_dev` and `preview_urls` set to `false`.
-   - Keep `SPAM_ACTION=forward` until real scores have been reviewed.
+   - The default spam route is quarantine at Cloudflare score 1. Set `SPAM_ACTION` to `forward`, `drop`, or `reject` when a different route is required.
    - Set `DEFAULT_ACTION=quarantine` to hold messages that match no routing
      rule for review. Rules still run first; this only changes the final
      unmatched fallback. Internal quarantine requires `QUARANTINE_MODE=internal`
@@ -719,7 +719,7 @@ See [docs/rules.md](docs/rules.md) for the rule model and examples.
 
 The router uses Cloudflare's inbound spam score headers (for example, `x-cf-spamh-score`) and does not compute a local heuristic or call an external spam-scanning service. The numeric score remains available to rule conditions; global spam handling applies when it meets `SPAM_THRESHOLD`.
 
-The safe default `SPAM_ACTION=forward` is observation-only. With a non-forward spam action, matching forward, webhook, ticket, and alert rules still go through global spam policy; only a rule with `"bypassSpam": true` bypasses it. Use that explicit override sparingly and only with independently trusted signals.
+The safe default `SPAM_ACTION=quarantine` holds messages at Cloudflare score 1 or higher. With a non-forward spam action, matching forward, webhook, ticket, and alert rules still go through global spam policy; only a rule with `"bypassSpam": true` bypasses it. Use that explicit override sparingly and only with independently trusted signals.
 
 Extracted customer, contact, technician, and device values are email content,
 not authenticated assertions. Exact catalog matching prevents guessing and

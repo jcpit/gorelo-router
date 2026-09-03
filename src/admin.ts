@@ -1741,7 +1741,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       setText("quarantineReleased",Number(quarantineSummary.released||0));
       setText("quarantineDismissed",Number(quarantineSummary.dismissed||0));
       setMetric("spamPostureValue",runtimeConfig?titleCase(runtimeConfig.spamAction):"—");
-      setText("spamPostureLabel",runtimeConfig?"Global spam action · threshold "+runtimeConfig.spamThreshold:"Loading spam policy");
+      setText("spamPostureLabel",runtimeConfig?"Header x-cf-spamh-score = 1 · "+titleCase(runtimeConfig.spamAction):"Loading spam policy");
       if (lastRefresh) setText("lastRefreshLabel","Ready · refreshed "+lastRefresh.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}));
     }
     function mailboxById(id) { return goreloMailboxes.find((mailbox)=>mailbox.id===id); }
@@ -1782,7 +1782,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       container.removeAttribute("aria-busy");
       container.textContent = "";
       const systemRules=[
-        {name:"System · Spam policy",description:"Evaluated when a message reaches the configured spam threshold. User rules cannot bypass this unless explicitly configured.",action:runtimeConfig?.spamAction||"forward",condition:"Spam score meets threshold "+String(runtimeConfig?.spamThreshold??"—"),badge:"System"},
+        {name:"System · Spam policy",description:"Cloudflare spam header policy. Route is configurable with SPAM_ACTION; quarantine is the default.",action:runtimeConfig?.spamAction||"quarantine",condition:'Header “x-cf-spamh-score” equals “1”',badge:"System"},
         {name:"System · Unmatched fallback",description:"Evaluated after all enabled routing rules when no rule matches the message.",action:runtimeConfig?.defaultAction||"forward",condition:"No enabled rule matched",badge:"System"}
       ];
       systemRules.forEach((rule,index)=>{ const article=node("article",undefined,"rule-card system-rule action-"+rule.action); article.setAttribute("role","listitem"); const priority=node("div",undefined,"priority"); priority.append(node("strong",index===0?"—":"∞"),node("span","System")); const main=node("div",undefined,"rule-main"); const titleLine=node("div",undefined,"rule-title-line"); titleLine.append(node("h3",rule.name),node("span",actionBadgeLabel({type:rule.action}),"badge "+rule.action),node("span",rule.badge,"badge enabled")); const chips=node("div",undefined,"chip-row"); chips.append(node("span",rule.condition,"chip")); main.append(titleLine,node("p",rule.description,"rule-description"),chips,node("p",actionLabel({type:rule.action}),"rule-description")); const note=node("div",undefined,"rule-actions"); note.append(node("span","Read-only policy","retention-note")); article.append(priority,main,note); container.append(article); });

@@ -320,7 +320,7 @@ export function loadConfig(env: Env): RuntimeConfig {
     allowedForwardDestinations,
     spamThreshold: integerSetting(
       env.SPAM_THRESHOLD,
-      5,
+      1,
       "SPAM_THRESHOLD",
       0,
       8,
