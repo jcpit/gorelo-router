@@ -13,13 +13,13 @@ data.
 
 It includes:
 
-- ordered D1 rules with `all`/`any` matching over envelope, header, size, body, attachment, and local spam-score facts;
+- ordered D1 rules with `all`/`any` matching over envelope, header, size, body, attachment, and Cloudflare spam-score facts;
 - any number of Cloudflare Email Routing catch-all domains, with recipient-domain conditions inside the shared rule engine;
 - forward, R2-backed internal hold, review-mailbox quarantine, drop, and SMTP-reject actions;
 - named Gorelo mailboxes with one persistent default, stable rule references,
   domain-or-address destination authorization, and Cloudflare's independent
   verified-destination check;
-- conservative subject-only spam scoring, initially configured for observation rather than blocking;
+- Cloudflare-provided spam scoring, exposed to rules without adding a local heuristic;
 - a responsive [Tabler](https://tabler.io/admin-template)-based dashboard at `/admin` with Rules, Quarantine, Audit, Dry run, and Setup workspaces;
 - bounded message audit detail in D1, optional raw RFC 5322 retention in private R2, and scheduled cleanup;
 - versioned quarantine release/dismiss actions with an append-only review timeline;
@@ -228,12 +228,10 @@ an ordinary `docker compose up`.
      rule for review. Rules still run first; this only changes the final
      unmatched fallback. Internal quarantine requires `QUARANTINE_MODE=internal`
      and R2, while mailbox quarantine requires `QUARANTINE_ADDRESS`.
-   - Set `POSTMARK_SPAMCHECK_ENABLED=true` to enable the optional Postmark
-     SpamAssassin check. With `POSTMARK_SPAMCHECK_UNKNOWN_SENDERS_ONLY=true`
-     (the recommended setting), the raw message is sent to Postmark only when
-     its sender domain is not trusted and does not match an imported Gorelo
-     customer domain. A timeout or provider failure safely falls back to the
-     local scanner.
+   - Spam decisions use Cloudflare's inbound spam headers (for example,
+     `x-cf-spamh-score`). The router does not run a local heuristic or an
+     external Postmark check. The legacy `POSTMARK_SPAMCHECK_*` settings are
+     ignored and may be removed from deployments.
    - Add exact public hostnames to `ALLOWED_WEBHOOK_HOSTS` only when webhooks are
      required. Wildcards, ports, IP literals, and local names are rejected.
 

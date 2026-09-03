@@ -586,13 +586,13 @@ This checks decoded filenames only; it is not malware detection.
 
 Headers and envelope domains can be forged unless an upstream control authenticates them. Prefer a dedicated recipient plus independently validated sender/authentication controls before using `bypassSpam`.
 
-### Quarantine a high local spam score
+### Quarantine a Cloudflare spam score
 
 ```json
 {
-  "name": "High local spam score",
+  "name": "Cloudflare spam score",
   "priority": 500,
-  "conditions": [{ "field": "spam_score", "operator": "gte", "value": 5 }],
+  "conditions": [{ "field": "header", "operator": "equals", "headerName": "x-cf-spamh-score", "value": "1" }],
   "action": { "type": "quarantine" }
 }
 ```

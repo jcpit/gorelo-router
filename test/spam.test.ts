@@ -2,59 +2,18 @@ import { describe, expect, it } from "vitest";
 import { assessSpam } from "../src/spam";
 import { config, email } from "./helpers";
 
-describe("spam assessment", () => {
-  it("does not treat normal urgent MSP language as spam", () => {
-    const result = assessSpam(
-      email({ subject: "Urgent: production server is offline" }),
-      config(),
-    );
-    expect(result).toEqual({ score: 0, reasons: [], isSpam: false });
+describe("Cloudflare spam assessment", () => {
+  it("uses the Cloudflare spam header as the only score source", () => {
+    const result = assessSpam(email({
+      subject: "YOU HAVE BEEN SELECTED - CLAIM YOUR PRIZE!!!!",
+      bodyText: "https://bit.ly/win unsubscribe",
+      attachments: [{ filename: "invoice.exe", mimeType: "application/octet-stream", size: 10 }],
+      headers: { "x-cf-spamh-score": "1" },
+    }), config());
+    expect(result).toEqual({ score: 1, reasons: ["Cloudflare spam score 1"], isSpam: true });
   });
 
-  it("combines high-confidence subject signals", () => {
-    const result = assessSpam(
-      email({ subject: "YOU HAVE BEEN SELECTED - CLAIM YOUR PRIZE!!!!" }),
-      config(),
-    );
-    expect(result.score).toBeGreaterThanOrEqual(5);
-    expect(result.isSpam).toBe(true);
-  });
-
-  it("allows configured phrases and trusted domains", () => {
-    const result = assessSpam(
-      email({
-        subject: "Custom bad phrase",
-        fromDomain: "alerts.vendor.example",
-      }),
-      config({
-        spamKeywords: ["custom bad phrase"],
-        trustedSenderDomains: new Set(["vendor.example"]),
-      }),
-    );
-    expect(result.score).toBe(0);
-    expect(result.isSpam).toBe(false);
-  });
-
-  it("scores body, authentication, links, and dangerous attachments", () => {
-    const result = assessSpam(
-      email({
-        subject: "Invoice attached",
-        bodyText: "Claim your prize now: https://bit.ly/win https://1.2.3.4/a unsubscribe",
-        headers: {
-          "authentication-results": "spf=fail dkim=fail dmarc=fail",
-          "reply-to": "different@example.net",
-        },
-        attachments: [{ filename: "invoice.exe", mimeType: "application/octet-stream", size: 10 }],
-      }),
-      config(),
-    );
-    expect(result.isSpam).toBe(true);
-    expect(result.reasons).toEqual(expect.arrayContaining([
-      "body phrase: claim your prize",
-      "email authentication failure",
-      "reply-to domain differs from sender",
-      "link uses a raw IP address",
-      "1 potentially executable attachment",
-    ]));
+  it("does not invent a score when Cloudflare did not provide one", () => {
+    expect(assessSpam(email({ subject: "claim your prize" }), config())).toEqual({ score: 0, reasons: [], isSpam: false });
   });
 });

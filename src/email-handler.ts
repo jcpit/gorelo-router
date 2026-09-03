@@ -7,7 +7,7 @@ import {
 import { EmailMessage } from "cloudflare:email";
 import { buildMessageAudit } from "./audit";
 import { loadConfig } from "./config";
-import { listGoreloClients, resolveClientIdentity } from "./client-directory";
+import { resolveClientIdentity } from "./client-directory";
 import { extractWebhookVariables, WebhookExtractionError } from "./extraction";
 import { prepareGoreloAction } from "./gorelo-action";
 import { getGoreloCatalog } from "./gorelo-integration";
@@ -40,7 +40,6 @@ import {
 import { deleteParserSample, storeParserSample } from "./parser-sample";
 import { decide, decideWithoutMime } from "./rules";
 import { assessSpam } from "./spam";
-import { postmarkSpamcheck } from "./postmark-spamcheck";
 import type {
   AuditTraceStep,
   Decision,
@@ -95,38 +94,6 @@ function cloudflareCanForward(message: ForwardableEmailMessage): boolean {
       }
     ).canBeForwarded === true
   );
-}
-
-async function applyExternalSpamcheck(
-  env: Env,
-  config: RuntimeConfig,
-  facts: EmailFacts,
-  raw: ArrayBuffer,
-  local: ReturnType<typeof assessSpam>,
-): Promise<ReturnType<typeof assessSpam>> {
-  if (!config.postmarkSpamcheckEnabled) return local;
-  if (config.postmarkSpamcheckUnknownSendersOnly) {
-    const senderDomain = facts.fromDomain.toLowerCase();
-    if (config.trustedSenderDomains.has(senderDomain)) return local;
-    try {
-      const directory = await listGoreloClients(env.DB, { limit: 5000 });
-      if (directory.items.some((client) => client.domains.some((domain) => domain.toLowerCase() === senderDomain))) {
-        return local;
-      }
-    } catch {
-      // A directory outage must not prevent normal mail processing.
-    }
-  }
-  const result = await postmarkSpamcheck(raw, config.postmarkSpamcheckTimeoutMs);
-  if (!result) return local;
-  const reasons = [...local.reasons];
-  if (result.score >= 5) reasons.push(`Postmark Spamcheck score ${result.score.toFixed(1)}`);
-  for (const rule of result.rules.slice(0, 5)) reasons.push(`Postmark rule: ${rule}`);
-  return {
-    score: Math.min(8, local.score + (result.score >= 5 ? 2 : result.score >= 3 ? 1 : 0)),
-    reasons,
-    isSpam: local.isSpam || result.score >= 5,
-  };
 }
 
 interface PreparedParserCapture {
@@ -843,7 +810,6 @@ export async function handleEmail(
       raw = await readRawMessage(message);
       facts = await extractEmailFacts(message, rules, config, raw);
       spam = assessSpam(facts, config);
-      spam = await applyExternalSpamcheck(env, config, facts, raw, spam);
       decision = decide({ ...facts, spam }, rules, config, mailboxDirectory);
     }
 

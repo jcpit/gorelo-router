@@ -424,8 +424,9 @@ instructions.
 | `WEBHOOK_TIMEOUT_MS`           | Webhook timeout from 50 through 30,000 milliseconds; scaffold value 8,000.                                                                                                                                                     |
 
 Keep `SPAM_ACTION=forward` until you have observed representative scores in
-Audit. The score is a bounded subject/envelope heuristic, not antivirus,
-phishing detection, reputation, URL analysis, or sender authentication.
+Audit. The score is read from Cloudflare's inbound spam headers (for example,
+`x-cf-spamh-score`); the router does not add a local heuristic and this is not
+antivirus, phishing detection, reputation, URL analysis, or sender authentication.
 
 If content rules are enabled, place a metadata-only size rule before them so
 oversized messages receive a deterministic action instead of reaching MIME

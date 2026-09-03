@@ -276,7 +276,7 @@ plan before the Docker deployment is run.
 
 ## Safe defaults and failure model
 
-- `SPAM_ACTION=forward` observes the transparent subject/envelope heuristic without diverting mail. It is not antivirus, phishing detection, or sender authentication.
+- `SPAM_ACTION=forward` observes Cloudflare's inbound spam score without diverting mail. The router does not add local subject/envelope heuristics; this is not antivirus, phishing detection, or sender authentication.
 - `QUARANTINE_MODE` defaults to `mailbox`; `ARCHIVE_MODE` defaults to `quarantine`.
 - Trusted envelope-sender domains only subtract score; they are not authentication or allow-list decisions. Dynamic client or ticket-association mapping must therefore use a dedicated parser recipient plus independently authenticated upstream source; an exact catalog match prevents fuzzy misrouting but does not establish trust.
 - A matching forward, webhook, ticket, or alert rule cannot bypass non-forward global spam policy without explicit `bypassSpam: true`.

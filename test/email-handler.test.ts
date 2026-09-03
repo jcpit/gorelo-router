@@ -216,25 +216,19 @@ describe("Email Worker handler", () => {
     expect(mail.setReject).toHaveBeenCalledWith("Mail processing failed");
   });
 
-  it("sanitizes Unicode diagnostic values before creating forward headers", async () => {
+  it("does not invent local spam reasons", async () => {
     const fake = database();
     const mail = message();
     mail.inbound.headers.set("subject", "=?UTF-8?B?54Sh5paZ?=");
     const context = executionContext();
 
-    await handleEmail(
-      mail.inbound,
-      env(fake.db, { SPAM_KEYWORDS: "無料", SPAM_THRESHOLD: "1" }),
-      context.context,
-    );
+    await handleEmail(mail.inbound, env(fake.db), context.context);
     await context.settle();
 
     expect(mail.setReject).not.toHaveBeenCalled();
     const forwardedHeaders = mail.forward.mock.calls[0]![1]!;
-    expect(forwardedHeaders.get("X-Mail-Parser-Spam-Reasons")).toBe(
-      "subject phrase: ??",
-    );
-    expect(fake.insertBindings[0]?.[7]).toBe('["subject phrase: 無料"]');
+    expect(forwardedHeaders.get("X-Mail-Parser-Spam-Reasons")).toBeNull();
+    expect(fake.insertBindings[0]?.[7]).toBe("[]");
   });
 
   it("uses an ASCII fallback for a Unicode-only SMTP reject reason", async () => {
